@@ -1,0 +1,118 @@
+.course-list {
+  width: 100%;
+}
+
+.course-list.empty {
+  text-align: center;
+  padding: 3rem;
+  color: #999;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.course-list h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.courses-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.course-card {
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #667eea;
+}
+
+.remove-button {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s, color 0.2s;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.remove-button:hover {
+  background-color: #fee;
+  color: #c33;
+  transform: scale(1.1);
+}
+
+.remove-button:active {
+  transform: scale(0.95);
+}
+
+.course-content {
+  padding-right: 0.5rem;
+}
+
+.course-code {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #667eea;
+  margin: 0 0 0.75rem 0;
+  line-height: 1.2;
+}
+
+.course-title {
+  font-size: 0.95rem;
+  color: #555;
+  margin: 0 0 1rem 0;
+  line-height: 1.4;
+}
+
+.course-info {
+  display: flex;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.classes-count {
+  padding: 0.35rem 0.75rem;
+  background-color: #e8f0fe;
+  color: #1967d2;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: inline-block;
+}
+
+@media (max-width: 768px) {
+  .courses-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-card {
+    padding: 1.25rem;
+  }
+}
+

@@ -1,0 +1,108 @@
+.schedule-card {
+  background: #f9f9f9;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.schedule-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #667eea;
+}
+
+.schedule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.schedule-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #667eea;
+  font-weight: 700;
+}
+
+.class-count {
+  padding: 0.25rem 0.75rem;
+  background-color: #e8f0fe;
+  color: #1967d2;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.schedule-classes {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.schedule-class-item {
+  background: white;
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+  margin-bottom: 0.5rem;
+}
+
+.class-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.class-code {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.class-number {
+  font-size: 0.875rem;
+  color: #666;
+  font-family: monospace;
+  background-color: #f5f5f5;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.class-title {
+  font-size: 0.95rem;
+  color: #555;
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.class-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.class-detail-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #666;
+  min-width: 80px;
+}
+
+.detail-value {
+  color: #333;
+  flex: 1;
+}
+
