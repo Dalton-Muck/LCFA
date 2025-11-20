@@ -2,6 +2,7 @@
 // Reads from .env file using Vite's import.meta.env
 export const environment = {
   courseCatalogBase: import.meta.env.VITE_COURSE_CATALOG_BASE_URL || 'https://ais.kube.ohio.edu/api/course-offerings',
+  openRouterApiKey: import.meta.env.VITE_OPENROUTER_API_KEY || '',
 };
 
 // Normalize base URL to handle cases where it might include /search/query

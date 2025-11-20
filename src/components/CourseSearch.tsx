@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { searchClassesAllPages, getCurrentFallTerm } from '../services/course-offerings.service';
-import type { Course } from '../types/course-offerings';
+import { getCurrentFallTerm, searchClasses } from '../services/course-offerings.service';
+import type { Course, ClassResult } from '../types/course-offerings';
 
 interface CourseSearchProps {
   onCourseAdd: (course: Course) => void;
   maxCourses?: number;
 }
 
-export function CourseSearch({ onCourseAdd, maxCourses = 4 }: CourseSearchProps) {
+export function CourseSearch({ onCourseAdd }: CourseSearchProps) {
   const [searchInput, setSearchInput] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,22 +39,72 @@ export function CourseSearch({ onCourseAdd, maxCourses = 4 }: CourseSearchProps)
       const { termCode } = await getCurrentFallTerm();
 
       // Search for all classes matching this subject and catalog number
-      // Only lectures (LEC) on Athens campus are returned by the service
-      const classes = await searchClassesAllPages(
-        {
-          terms: [termCode],
-          campuses: ['ATHN'], // Athens campus only
-          subjects: [parsed.subject],
-          catalogNumber: parsed.catalogNumber,
-        },
-        (classResult) =>
-          classResult.subject === parsed.subject &&
-          classResult.catalogNumber === parsed.catalogNumber,
-      );
+      // Fetch ALL component types (LEC, LAB, etc.) to allow separating them
+      const pageSize = 50;
+      const allClasses: ClassResult[] = [];
+      let currentPage = 1;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const response = await searchClasses(
+          {
+            terms: [termCode],
+            campuses: ['ATHN'],
+            subjects: [parsed.subject],
+            catalogNumber: parsed.catalogNumber,
+          },
+          currentPage,
+          pageSize,
+        );
+        
+        let matchingClasses = response.results.filter((cls: ClassResult) => {
+          // Must match subject and catalog number
+          if (cls.subject !== parsed.subject || cls.catalogNumber !== parsed.catalogNumber) {
+            return false;
+          }
+          
+          // Check campus - should be Athens
+          const location = (cls as any).location || '';
+          const isAthens = location.includes('Athens');
+          
+          // Must have valid time data
+          let hasValidTime = false;
+          if ((cls as any).meetings && Array.isArray((cls as any).meetings) && (cls as any).meetings.length > 0) {
+            const meeting = (cls as any).meetings[0];
+            if (meeting.startTime && meeting.endTime && 
+                typeof meeting.startTime === 'string' && 
+                typeof meeting.endTime === 'string' &&
+                meeting.startTime.trim() !== '' &&
+                meeting.endTime.trim() !== '') {
+              hasValidTime = true;
+            }
+          }
+          if (!hasValidTime && (cls as any).times && typeof (cls as any).times === 'string' && (cls as any).times.trim() !== '' && (cls as any).times !== 'TBA') {
+            hasValidTime = true;
+          }
+          
+          // Include LEC and LAB components
+          const component = (cls as any).component || cls.instructionType || '';
+          const isLecture = component === 'LEC' || component === 'Lecture' || component.toLowerCase() === 'lecture';
+          const isLab = component === 'LAB' || component === 'Laboratory' || component.toLowerCase() === 'laboratory' || component.toLowerCase() === 'lab';
+          
+          return isAthens && hasValidTime && (isLecture || isLab);
+        });
+        
+        allClasses.push(...matchingClasses);
+        
+        const totalCount = response.counts['ATHN'] || Object.values(response.counts)[0] || 0;
+        const fetchedSoFar = (currentPage - 1) * pageSize + response.results.length;
+        hasMore = response.results.length === pageSize && fetchedSoFar < totalCount;
+        
+        currentPage++;
+      }
+      
+      const classes = allClasses;
 
       if (classes.length === 0) {
         setError(
-          `No lecture classes with valid schedule times found for ${parsed.subject} ${parsed.catalogNumber} on Athens campus. ` +
+          `No classes with valid schedule times found for ${parsed.subject} ${parsed.catalogNumber} on Athens campus. ` +
           `Classes without time information are excluded.`
         );
         setIsSearching(false);
@@ -111,11 +161,6 @@ export function CourseSearch({ onCourseAdd, maxCourses = 4 }: CourseSearchProps)
         </button>
       </div>
       {error && <div className="error-message">{error}</div>}
-      {maxCourses && (
-        <div className="search-hint">
-          You can add up to {maxCourses} courses
-        </div>
-      )}
     </div>
   );
 }

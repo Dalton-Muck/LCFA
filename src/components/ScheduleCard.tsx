@@ -1,4 +1,4 @@
-import type { Schedule } from '../services/ollama.service';
+import type { Schedule } from '../services/gemini.service';
 import './ScheduleCard.css';
 
 interface ScheduleCardProps {
