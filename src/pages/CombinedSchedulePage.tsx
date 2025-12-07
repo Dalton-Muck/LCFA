@@ -6,6 +6,10 @@ import type { Course, ClassResult } from '../types/course-offerings';
 import { environment } from '../config/environment';
 import { PREVIOUS_SCHEDULES, type PreviousSchedule } from '../data/previousSchedules';
 import { getCurrentFallTerm, searchClasses } from '../services/course-offerings.service';
+import { CommunitySelector } from '../components/CommunitySelector';
+import type { ClusteredCommunity } from '../types/clustered-classes';
+import { organizeByCollege } from '../utils/community-parser';
+import clusteredClassesData from '../data/clustered_classes.json';
 import './CombinedSchedulePage.css';
 
 // No maximum course limit
@@ -20,7 +24,13 @@ export function CombinedSchedulePage() {
   const [error, setError] = useState<string | null>(null);
   const [showSchedules, setShowSchedules] = useState(false);
   const [selectedPreviousSchedule, setSelectedPreviousSchedule] = useState<PreviousSchedule | null>(null);
+  const [selectedCommunity, setSelectedCommunity] = useState<ClusteredCommunity | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Organize clustered classes data (filters out UC 1900 classes)
+  const collegeGroups = organizeByCollege(
+    clusteredClassesData as ClusteredCommunity[]
+  );
 
   // Helper to get course key
   const getCourseKey = (subject: string, catalogNumber: string): string => {
@@ -216,6 +226,7 @@ export function CombinedSchedulePage() {
       const lectureCourse: Course = {
         subject: course.subject,
         catalogNumber: course.catalogNumber,
+        component: 'Lecture',
         title: course.title,
         classes: lectureClasses,
       };
@@ -238,10 +249,12 @@ export function CombinedSchedulePage() {
     
     // Add lab course if there are lab classes
     if (labClasses.length > 0) {
-      const labCatalogNumber = `${course.catalogNumber} Lab`;
+      // Keep catalogNumber clean, use component field to distinguish
+      const labCatalogNumber = `${course.catalogNumber} Lab`; // For UI display/distinction
       const labCourse: Course = {
         subject: course.subject,
-        catalogNumber: labCatalogNumber,
+        catalogNumber: labCatalogNumber, // Keep with suffix for UI, but component will be extracted when sending to model
+        component: 'Lab',
         title: `${course.title} (Lab)`,
         classes: labClasses,
       };
@@ -381,6 +394,32 @@ export function CombinedSchedulePage() {
 
   const handlePreviousScheduleSelect = (schedule: PreviousSchedule | null) => {
     setSelectedPreviousSchedule(schedule);
+    setSelectedCommunity(null); // Clear community selection when using old schedules
+    setError(null);
+  };
+
+  const handleCommunitySelect = (community: ClusteredCommunity | null) => {
+    setSelectedCommunity(community);
+    setSelectedPreviousSchedule(null); // Clear old schedule selection
+    
+    if (community) {
+      // Convert community to PreviousSchedule format
+      const previousSchedule: PreviousSchedule = {
+        scheduleNumber: community.clusterCallNumber,
+        name: `${community.communities} (${community.college.trim()})`,
+        classes: community.classes.map((cls) => {
+          // Format time range from meetTimeStart, meetTimeEnd, and days
+          const timeRange = `${cls.days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`;
+          return {
+            subject: cls.subject,
+            catalogNumber: cls.catalogNumber,
+            component: cls.component, // Include component information
+            timeRange: timeRange,
+          };
+        }),
+      };
+      setSelectedPreviousSchedule(previousSchedule);
+    }
     setError(null);
   };
 
@@ -400,27 +439,34 @@ export function CombinedSchedulePage() {
       const newExpanded = new Set<string>();
 
       // Get unique courses from the previous schedule
-      // Group by subject-catalogNumber-component to separate labs from lectures
-      const uniqueCourses = new Map<string, { subject: string; catalogNumber: string }>();
+      // Group by subject-catalogNumber-component to separate labs, lectures, discussions, etc.
+      const uniqueCourses = new Map<string, { subject: string; catalogNumber: string; component?: string }>();
       selectedPreviousSchedule.classes.forEach((cls) => {
-        const baseKey = `${cls.subject}-${cls.catalogNumber}`;
+        // Include component in the key to distinguish Lecture, Lab, Discussion, etc.
+        const component = cls.component || '';
+        const baseKey = `${cls.subject}-${cls.catalogNumber}-${component}`;
         if (!uniqueCourses.has(baseKey)) {
           uniqueCourses.set(baseKey, { 
             subject: cls.subject, 
-            catalogNumber: cls.catalogNumber
+            catalogNumber: cls.catalogNumber,
+            component: component || undefined
           });
         }
       });
 
       // Fetch classes for each course
-      // For previous schedules, we need to fetch ALL component types (LEC, LAB, etc.)
+      // For previous schedules, we need to fetch ALL component types (LEC, LAB, Discussion, etc.)
       // and separate them into different course entries
-      for (const { subject, catalogNumber } of uniqueCourses.values()) {
+      for (const { subject, catalogNumber, component } of uniqueCourses.values()) {
         try {
-          // Get the class numbers from the previous schedule for this course
-          const previousClassNumbers = selectedPreviousSchedule.classes
-            .filter((cls) => cls.subject === subject && cls.catalogNumber === catalogNumber)
-            .map((cls) => cls.classNumber);
+          // Get the time ranges from the previous schedule for this course and component
+          const previousTimeRanges = selectedPreviousSchedule.classes
+            .filter((cls) => 
+              cls.subject === subject && 
+              cls.catalogNumber === catalogNumber &&
+              (cls.component || '') === (component || '')
+            )
+            .map((cls) => cls.timeRange);
           
           // Fetch all pages of classes, including LAB and other components
           const pageSize = 50;
@@ -466,13 +512,27 @@ export function CombinedSchedulePage() {
                 hasValidTime = true;
               }
               
-              // Include LEC, LAB, and any class that matches previous schedule class numbers
-              const component = (cls as any).component || cls.instructionType || '';
-              const isLecture = component === 'LEC' || component === 'Lecture' || component.toLowerCase() === 'lecture';
-              const isLab = component === 'LAB' || component === 'Laboratory' || component.toLowerCase() === 'laboratory' || component.toLowerCase() === 'lab';
-              const isInPreviousSchedule = previousClassNumbers.includes(cls.classNumber);
+              // Include classes that match the component type
+              const clsComponent = (cls as any).component || cls.instructionType || '';
+              const normalizedClsComponent = clsComponent.toLowerCase().trim();
+              const normalizedTargetComponent = (component || '').toLowerCase().trim();
               
-              return isAthens && hasValidTime && (isLecture || isLab || isInPreviousSchedule);
+              // Match component types generically (Lecture, Lab, Discussion, Recitation, Seminar, Tutorial, etc.)
+              // Handle common variations and abbreviations
+              const componentMatches = 
+                normalizedTargetComponent === normalizedClsComponent ||
+                (normalizedTargetComponent === 'lecture' && (normalizedClsComponent === 'lec' || normalizedClsComponent === 'lecture')) ||
+                (normalizedTargetComponent === 'lab' && (normalizedClsComponent === 'lab' || normalizedClsComponent === 'laboratory')) ||
+                (normalizedTargetComponent === 'discussion' && normalizedClsComponent === 'discussion') ||
+                (normalizedTargetComponent === 'recitation' && normalizedClsComponent === 'recitation') ||
+                (normalizedTargetComponent === 'seminar' && normalizedClsComponent === 'seminar') ||
+                (normalizedTargetComponent === 'tutorial' && normalizedClsComponent === 'tutorial') ||
+                (normalizedTargetComponent === 'independent study' && normalizedClsComponent === 'independent study');
+              
+              // If no specific component is specified, include all component types
+              const includeAllComponents = !component || component.trim() === '';
+              
+              return isAthens && hasValidTime && (includeAllComponents || componentMatches);
             });
             
             allClasses.push(...matchingClasses);
@@ -484,54 +544,49 @@ export function CombinedSchedulePage() {
             currentPage++;
           }
           
-          // Separate classes by component type
-          const lectureClasses = allClasses.filter((cls) => {
-            const component = (cls as any).component || cls.instructionType || '';
-            return component === 'LEC' || component === 'Lecture' || component.toLowerCase() === 'lecture';
+          // Filter classes by the specific component type
+          const componentClasses = allClasses.filter((cls) => {
+            const clsComponent = (cls as any).component || cls.instructionType || '';
+            const normalizedClsComponent = clsComponent.toLowerCase().trim();
+            const normalizedTargetComponent = (component || '').toLowerCase().trim();
+            
+            // Match exact component or common variations for all component types
+            return normalizedTargetComponent === normalizedClsComponent ||
+              (normalizedTargetComponent === 'lecture' && (normalizedClsComponent === 'lec' || normalizedClsComponent === 'lecture')) ||
+              (normalizedTargetComponent === 'lab' && (normalizedClsComponent === 'lab' || normalizedClsComponent === 'laboratory')) ||
+              (normalizedTargetComponent === 'discussion' && normalizedClsComponent === 'discussion') ||
+              (normalizedTargetComponent === 'recitation' && normalizedClsComponent === 'recitation') ||
+              (normalizedTargetComponent === 'seminar' && normalizedClsComponent === 'seminar') ||
+              (normalizedTargetComponent === 'tutorial' && normalizedClsComponent === 'tutorial') ||
+              (normalizedTargetComponent === 'independent study' && normalizedClsComponent === 'independent study');
           });
           
-          const labClasses = allClasses.filter((cls) => {
-            const component = (cls as any).component || cls.instructionType || '';
-            return component === 'LAB' || component === 'Laboratory' || component.toLowerCase() === 'laboratory' || component.toLowerCase() === 'lab';
-          });
-          
-          // Create separate course for lectures if there are any
-          if (lectureClasses.length > 0) {
-            const title = lectureClasses[0].title;
+          // Create course entry for this component type if there are any classes
+          if (componentClasses.length > 0) {
+            const title = componentClasses[0].title;
+            // Use component name in catalog number to differentiate (e.g., "1330 Lab", "1330 Discussion", "1330 Recitation")
+            // Only add suffix for non-lecture components to keep lecture courses clean
+            const normalizedComponent = (component || '').toLowerCase().trim();
+            const isLecture = normalizedComponent === 'lecture' || normalizedComponent === 'lec' || normalizedComponent === '';
+            const componentSuffix = component && !isLecture ? ` ${component}` : '';
+            const catalogNumberWithComponent = component && !isLecture
+              ? `${catalogNumber}${componentSuffix}`
+              : catalogNumber;
+            
             const course: Course = {
               subject,
-              catalogNumber,
-              title,
-              classes: lectureClasses,
+              catalogNumber: catalogNumberWithComponent,
+              component: component || undefined,
+              title: component && !isLecture
+                ? `${title} (${component})`
+                : title,
+              classes: componentClasses,
             };
             newCourses.push(course);
 
-            const courseKey = getCourseKey(subject, catalogNumber);
+            const courseKey = getCourseKey(subject, catalogNumberWithComponent);
             const selectedSet = new Set<number>();
-            lectureClasses.forEach((cls) => {
-              selectedSet.add(cls.classNumber);
-            });
-            newSelections.set(courseKey, selectedSet);
-            newExpanded.add(courseKey);
-          }
-          
-          // Create separate course for labs if there are any
-          if (labClasses.length > 0) {
-            const title = labClasses[0].title;
-            // Use a modified catalog number to differentiate the lab course
-            const labCatalogNumber = `${catalogNumber} Lab`;
-            const course: Course = {
-              subject,
-              catalogNumber: labCatalogNumber,
-              title: `${title} (Lab)`,
-              classes: labClasses,
-            };
-            newCourses.push(course);
-
-            // Use a unique course key for the lab
-            const courseKey = getCourseKey(subject, labCatalogNumber);
-            const selectedSet = new Set<number>();
-            labClasses.forEach((cls) => {
+            componentClasses.forEach((cls) => {
               selectedSet.add(cls.classNumber);
             });
             newSelections.set(courseKey, selectedSet);
@@ -655,13 +710,41 @@ export function CombinedSchedulePage() {
     let days = '';
     let times = '';
 
+    // Helper function to convert 24-hour to 12-hour AM/PM format
+    const convertTo12Hour = (time24: string): string => {
+      if (!time24 || typeof time24 !== 'string') return time24;
+      if (time24.includes('AM') || time24.includes('PM') || time24.includes('am') || time24.includes('pm')) {
+        return time24;
+      }
+      const trimmed = time24.trim();
+      const [hours, minutes] = trimmed.split(':');
+      if (!hours || !minutes) return time24;
+      const hour24 = parseInt(hours, 10);
+      if (isNaN(hour24)) return time24;
+      let hour12 = hour24;
+      let ampm = 'AM';
+      if (hour24 === 0) {
+        hour12 = 12;
+      } else if (hour24 === 12) {
+        hour12 = 12;
+        ampm = 'PM';
+      } else if (hour24 > 12) {
+        hour12 = hour24 - 12;
+        ampm = 'PM';
+      }
+      return `${hour12}:${minutes} ${ampm}`;
+    };
+
     if (classItem.meetings && classItem.meetings.length > 0) {
       const meeting = classItem.meetings[0];
       if (meeting.days && Array.isArray(meeting.days)) {
         days = meeting.days.join('');
       }
       if (meeting.startTime && meeting.endTime) {
-        times = `${meeting.startTime}-${meeting.endTime}`;
+        // Convert to AM/PM format
+        const start12 = convertTo12Hour(meeting.startTime);
+        const end12 = convertTo12Hour(meeting.endTime);
+        times = `${start12}-${end12}`;
       }
     }
 
@@ -669,18 +752,31 @@ export function CombinedSchedulePage() {
       days = classItem.days;
     }
     if (!times && classItem.times && classItem.times !== 'TBA') {
-      times = classItem.times;
+      // Convert to AM/PM format if needed
+      const timeParts = classItem.times.split('-');
+      if (timeParts.length === 2) {
+        const start12 = convertTo12Hour(timeParts[0].trim());
+        const end12 = convertTo12Hour(timeParts[1].trim());
+        times = `${start12}-${end12}`;
+      } else {
+        times = classItem.times;
+      }
     }
 
     if (!times) return 'TBA';
 
-    // Format time for display
+    // If times already have AM/PM, just combine with days
+    if (times.includes('AM') || times.includes('PM') || times.includes('am') || times.includes('pm')) {
+      return days ? `${days} ${times}` : times;
+    }
+
+    // Fallback: format time for display (shouldn't reach here if conversion worked)
     const formatTime = (time: string): string => {
       const [hours, minutes] = time.split(':');
       const hour = parseInt(hours, 10);
-      const ampm = hour >= 12 ? 'pm' : 'am';
+      const ampm = hour >= 12 ? 'PM' : 'AM';
       const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-      return `${displayHour}:${minutes}${ampm}`;
+      return `${displayHour}:${minutes} ${ampm}`;
     };
 
     const [startTime, endTime] = times.split('-');
@@ -830,29 +926,50 @@ export function CombinedSchedulePage() {
               <h2>Previous Schedules</h2>
             </div>
             <div className="previous-schedules-dropdown">
-              <label htmlFor="previous-schedule-select">Select a previous schedule:</label>
-              <select
-                id="previous-schedule-select"
-                value={selectedPreviousSchedule?.scheduleNumber || ''}
-                onChange={(e) => {
-                  const scheduleNum = parseInt(e.target.value);
-                  const schedule = PREVIOUS_SCHEDULES.find((s) => s.scheduleNumber === scheduleNum) || null;
-                  handlePreviousScheduleSelect(schedule);
-                }}
-                className="schedule-select"
-              >
-                <option value="">Select a previous schedule...</option>
-                {PREVIOUS_SCHEDULES.map((schedule) => (
-                  <option key={schedule.scheduleNumber} value={schedule.scheduleNumber}>
-                    {schedule.name} ({schedule.classes.length} courses)
-                  </option>
-                ))}
-              </select>
+              {/* New Community Selector */}
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '12px', fontWeight: 600 }}>
+                  Select from Learning Communities:
+                </h3>
+                <CommunitySelector
+                  collegeGroups={collegeGroups}
+                  selectedCommunity={selectedCommunity}
+                  onCommunitySelect={handleCommunitySelect}
+                />
+              </div>
+
+              {/* Legacy Schedule Selector */}
+              <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e0e0e0' }}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '12px', fontWeight: 600 }}>
+                  Or select from legacy schedules:
+                </h3>
+                <label htmlFor="previous-schedule-select">Select a previous schedule:</label>
+                <select
+                  id="previous-schedule-select"
+                  value={selectedPreviousSchedule?.scheduleNumber || ''}
+                  onChange={(e) => {
+                    const scheduleNum = parseInt(e.target.value);
+                    const schedule = PREVIOUS_SCHEDULES.find((s) => s.scheduleNumber === scheduleNum) || null;
+                    handlePreviousScheduleSelect(schedule);
+                  }}
+                  className="schedule-select"
+                  style={{ marginTop: '6px' }}
+                >
+                  <option value="">Select a previous schedule...</option>
+                  {PREVIOUS_SCHEDULES.map((schedule) => (
+                    <option key={schedule.scheduleNumber} value={schedule.scheduleNumber}>
+                      {schedule.name} ({schedule.classes.length} courses)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {selectedPreviousSchedule && (
                 <>
                   <button
                     className="transfer-button"
                     onClick={handleTransferPreviousSchedule}
+                    style={{ marginTop: '16px' }}
                   >
                     Transfer
                   </button>
@@ -867,7 +984,7 @@ export function CombinedSchedulePage() {
                         {selectedPreviousSchedule.classes.map((cls, idx) => (
                         <li key={idx} className="previous-course-item">
                           <span className="prev-course-code">
-                            {cls.subject} {cls.catalogNumber} (#{cls.classNumber})
+                            {cls.subject} {cls.catalogNumber} {cls.component && `(${cls.component})`}
                           </span>
                           <span className="prev-course-time">{cls.timeRange}</span>
                         </li>

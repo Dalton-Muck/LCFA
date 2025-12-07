@@ -75,6 +75,7 @@ export interface Term {
 export interface Course {
   subject: string;
   catalogNumber: string;
+  component?: string; // Component type (Lecture, Lab, Discussion, etc.) - separate from catalogNumber
   title: string;
   classes: ClassResult[]; // All classes for this course, stored but not displayed
 }

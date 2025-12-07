@@ -18,6 +18,7 @@ export function ScheduleCard({ schedule }: ScheduleCardProps) {
             <div className="class-header">
               <span className="class-code">
                 {classItem.subject} {classItem.catalogNumber}
+                {classItem.component && ` (${classItem.component})`}
               </span>
               <span className="class-number">#{classItem.classNumber}</span>
             </div>
