@@ -121,10 +121,6 @@ export async function searchClasses(
 
     const data = await response.json();
     
-    // Log the first class to see what fields are available
-    if (data.results && data.results.length > 0) {
-      console.log('Sample class from API response:', JSON.stringify(data.results[0], null, 2));
-    }
     
     return data;
   } catch (error) {

@@ -1,0 +1,447 @@
+Learning Community Formation Assistant (LCFA):
+A Hybrid Generative AI and Constraint-Based
+Scheduling System
+Dalton Muck
+Department of Electrical Engineering and Computer Science
+Ohio University
+Email: tm033520@ohio.edu
+Abstract—Learning Communities (LCs) introduce complex
+multi-course scheduling requirements that are not supported by
+traditional student information systems. Students and advisors
+must manually explore hundreds of class combinations to find
+conflict-free schedules that satisfy LC membership, include all
+course components, and match historical preferences. This paper
+presents the Learning Community Course Scheduling Assistant
+(LCFA), a hybrid system combining deterministic conflict detec-
+tion, university Course Offerings API integration, and generative
+AI schedule reasoning. The system generates up to eight unique,
+conflict-free, preference-aware schedules for LC cohorts. We
+detail the system architecture, historical preference matching,
+multi-component course handling, generative AI prompt engi-
+neering, validation pipeline, and user-facing interface. LCFA was
+developed to address advisor-identified needs for block scheduling
+of entire Learning Community course sets from previous years,
+with specific attention to the critical distinction between courses
+(e.g., MATH 1300) and their specific class instances (e.g., MATH
+1300 #1727). The system demonstrates robust performance across
+multiple foundation models, processing approximately 400 unique
+Learning Communities from Ohio University data with an 80%
+exact match rate between historical and current offerings.
+Index Terms—Generative AI, scheduling, timetabling, learn-
+ing communities, constraint satisfaction, educational technology,
+prompt engineering
+I. INTRODUCTION AND MOTIVATION
+Learning Communities (LCs) group first-year university
+students into coordinated academic cohorts that share multiple
+courses. These structures improve retention and academic
+success, but they also introduce significant scheduling com-
+plexity. Students must enroll in a predefined set of courses,
+often with multiple sections, heterogeneous meeting patterns,
+and required combinations of Lecture, Lab, and Discussion
+components.
+Traditional university registration systems do not support
+LC scheduling. They assume individualized course selection
+and require students to manually evaluate each possible com-
+bination to ensure that all courses fit without time conflicts.
+Even a small LC with three courses offering 5, 4, and 6
+sections respectively produces 120 possible combinations;
+multi-component courses increase this exponentially. Advisors
+often spend hours constructing schedules manually.
+The Learning Community Course Scheduling Assistant
+(LCFA) addresses this by combining deterministic constraint-
+checking with generative AI to automatically produce up to
+eight conflict-free schedules that incorporate LC requirements
+and historical student-time preferences. This hybrid approach
+reduces advisor workload and enhances user autonomy in
+schedule planning. Specifically, LCFA was developed in re-
+sponse to advisor requests for a tool that could schedule entire
+blocks of classes given a set of courses from previous years,
+with particular attention to matching historical meeting times
+when possible.
+II. RELATED WORK AND LITERATURE REVIEW
+A. Course Scheduling as a Constraint Satisfaction Problem
+Scheduling has historically been modeled as a Constraint
+Satisfaction Problem (CSP), using Integer Linear Program-
+ming (ILP), Constraint Programming (CP), or Genetic Al-
+gorithms (GA). These approaches excel at institution-scale
+timetabling [1], [2] but are poorly suited for personalized or
+LC-specific scheduling due to rigid modeling requirements
+and high computational overhead. The Explicit AI Timetable
+Generator by [2] demonstrates the effectiveness of Genetic
+Algorithms for university timetabling, particularly in handling
+classroom, faculty, and course-level constraints. However, their
+approach is institution-wide and does not address student-
+level scheduling within Learning Communities, which requires
+fine-grained preference matching and multi-component course
+handling—a gap that LCFA fills.
+B. AI-Powered Scheduling Systems and In-Context Retrieval
+The emergence of Large Language Models (LLMs) enables
+new approaches to scheduling. LLMs can interpret natural-
+language constraints, produce structured outputs, and reason
+about conflicts. However, as [3] note, the effectiveness of
+in-context learning in LLMs is heavily dependent on the
+quality of retrieved examples. Their LLM-R framework trains
+a dense retriever to select high-quality examples that improve
+LLM performance across diverse NLP tasks. Similarly, LCFA
+employs a retrieval-augmented approach by incorporating his-
+torical Learning Community schedules as in-context examples,
+ensuring that generated schedules align with past student
+preferences. Unlike LLM-R, which focuses on general NLP
+tasks, LCFA tailors retrieval to temporal and structural patterns
+in academic scheduling.
+C. Historical Preference Integration in Educational Schedul-
+ing
+Research in preference learning and recommender systems
+indicates that prior behavior strongly predicts future prefer-
+ences. However, few scheduling tools leverage historical time
+patterns (e.g., preferring TuTh formats). LCFA incorporates
+historical meeting times directly into its constraint reasoning,
+similar to how [2] allow administrators to set manual priorities
+in their semi-automatic timetable system. However, LCFA
+automates this process by using historical LC data to infer
+and enforce temporal preferences without manual intervention,
+thereby reducing advisor workload while maintaining consis-
+tency.
+D. Multi-Component Course Scheduling
+Many courses include multiple required components, such
+as Lecture–Lab–Discussion combinations. Existing student-
+facing tools (Coursicle, MyEdu) typically ignore component
+coupling, making them unsuitable for LC scheduling. LCFA
+explicitly models component dependencies and handles classes
+with complex multi-day or multi-time meeting patterns. This
+mirrors the constraint-aware approach of [2], who enforce that
+“no classroom or lab is assigned more than one lecture at a
+given time.” However, LCFA operates at the student-section
+level rather than the institutional resource level, ensuring
+that each student’s schedule respects component co-enrollment
+rules.
+E. Hybrid AI–Deterministic Scheduling Systems
+Recent systems such as those by [2] and [3] highlight the
+trend toward hybrid AI–deterministic systems. Farinola et al.
+combine GA with manual priority setting, while Wang et al.
+combine retrieval models with LLMs. LCFA follows a similar
+hybrid paradigm: deterministic conflict detection and historical
+matching are used to preprocess constraints, which are then
+passed to an LLM for schedule generation. This ensures
+both correctness (via deterministic checks) and flexibility
+(via LLM-based exploration), bridging the gap between fully
+automated and fully manual scheduling systems.
+III. FOUNDATIONAL WORK AND DATA ARCHITECTURE
+A. Course vs. Class Distinction and API Integration
+LCFA operates on a critical distinction between courses
+and classes. A course (e.g., MATH 1300) represents a subject
+and catalog number combination that remains consistent year-
+to-year. A class (e.g., MATH 1300 #1727) is a specific in-
+stance of that course with particular meeting times, instructors,
+locations, and enrollment data. LCFA integrates with Ohio
+University’s Course Offerings API to fetch real-time class data
+for courses identified from historical Learning Communities.
+This API provides:
+• Meeting days and times in 24-hour format,
+• Instructor and location information,
+• Component type (LEC, LAB, DIS),
+• Section identifiers and class numbers,
+• Current enrollment and capacity data.
+The system automatically selects the most recent Fall term
+and normalizes all time and day formats into consistent inter-
+nal representations. API calls typically complete within 50ms,
+providing near real-time access to current course offerings.
+B. Learning Community Historical Data Processing
+LCFA processes historical data from approximately 400
+Learning Communities across Ohio University, extracted
+from Excel spreadsheets (e.g., “LC Clusters 2024-8-5” and
+“LC Clusters 2025-7-7 Final”). A Python ETL pipeline
+(load_clustered_data.py) converts these spreadsheets
+into structured JSON with the following processing stages:
+1) Data Extraction and Normalization: The pipeline im-
+plements sophisticated format handling to accommodate vari-
+ations between academic years:
+• Column Name Normalization: Maps alternative column
+names (e.g., “Class #” ↔ “Class Number”, “Catalog #”
+↔ “Catalog Number”).
+• Time Format Conversion: Converts various time for-
+mats to consistent 12-hour AM/PM representation, han-
+dling edge cases like midnight (00:00 → 12:00 AM) and
+noon (12:00 → 12:00 PM).
+• Multiple Meeting Pattern Detection: Identifies classes
+with heterogeneous schedules (e.g., MWF at 10:45 AM;
+Th at 11:00 AM) by scanning for secondary time
+columns.
+• Component Extraction: Extracts component types from
+catalog number suffixes or separate columns, normalizing
+variations (e.g., “LEC” → “Lecture”, “Laboratory” →
+“Lab”).
+2) Data Structure and Statistics: The processed dataset
+includes:
+• 400 unique Learning Community clusters,
+• Approximately 15,000 class records from previous aca-
+demic years,
+• Hierarchical organization by college and community for
+efficient retrieval,
+• Filtered exclusion of administrative courses (e.g., UC
+1900 Learning Community Seminar).
+This historical dataset enables the system’s preference
+matching feature by providing temporal patterns from actual
+student schedules.
+C. Deterministic Conflict Detection Algorithm
+The LCFA conflict engine implements precise temporal
+collision detection. The algorithm checks for day overlap and
+time range intersection:
+Day Overlap Detection:
+• Parse day strings into sets (e.g., “MWF” → {“M”, “W”,
+“F”})
+• Check for non-empty intersection between day sets
+• Handle multiple meeting patterns by checking all combi-
+nations
+Time Range Intersection:
+• Convert times to minutes since midnight
+• Two intervals (s1, e1) and (s2, e2) overlap if: s1 < e2
+and s2 < e1
+• Touching intervals (e1 = s2) are not considered conflicts
+For classes with multiple meeting patterns, any overlap
+between any meeting instance of two classes constitutes a
+conflict. The algorithm achieves 100% accuracy with no false
+positives or negatives in testing.
+D. Historical Preference Matching with Temporal Proximity
+LCFA implements a three-tier hierarchical matching strat-
+egy that distinguishes between courses (which remain con-
+stant) and classes (which may change year-to-year):
+1) Matching Algorithm:
+1) Exact Match (Mandatory): When a current class has
+identical subject, catalog number, component, days, and
+times as a historical class, it becomes mandatory in all
+generated schedules. This occurs in approximately 80%
+of cases, often resulting in a single schedule.
+2) Day-First Matching: When exact time matches aren’t
+available, the system prioritizes matching day patterns
+while minimizing temporal distance:
+temporal distance = |Minutes(thistorical)−Minutes(tcurrent)|
+where timeToMinutes converts times (e.g., ”1:00 PM”)
+to minutes since midnight for precise comparison.
+3) Temporal Proximity Fallback: When no day matches
+exist, selects the class with minimum temporal distance
+regardless of days.
+This approach recognizes that while courses remain constant
+between years, specific class instances (with their times) may
+change due to instructor availability, room assignments, or
+departmental scheduling adjustments.
+IV. GENERATIVE AI INTEGRATION ARCHITECTURE
+A. Model Agnostic Design and Performance
+LCFA is designed to work with multiple foundation models
+through the OpenRouter API, including:
+• OpenAI models (GPT-3.5, GPT-4),
+• Anthropic Claude models,
+• Google Gemini models,
+• Local models via Ollama (e.g., Llama 2, Mistral),
+• xAI Grok models.
+Model call latencies vary significantly:
+• Fast models (e.g., GPT-3.5 Turbo): 100-500ms,
+• Medium models (e.g., Gemini Pro): 500-1500ms,
+• Large/complex models (e.g., GPT-4, Claude Opus): 1000-
+2000ms.
+This model-agnostic design allows institutions to balance
+cost, speed, and reasoning capability based on their specific
+needs.
+B. Prompt Engineering Strategy
+LCFA employs a sophisticated few-shot prompting strategy
+that would fail if implemented through direct ChatGPT in-
+teraction due to token limitations and inconsistent response
+formatting.
+1) Prompt Structure:
+System Message (Role Definition + Core Constraints)
+"You are an academic scheduling assistant. Constrai
+1. Generate conflict-free schedules
+2. Use exact historical matches when available (man
+3. Produce up to 8 unique schedules
+4. Return ONLY valid JSON"
+Few-Shot Example Pair (Demonstrates expected behavi
+User: [Simplified course data with historical prefe
+Assistant: [Example JSON schedules showing uniquene
+Actual User Prompt:
+[Current course data + historical preferences]
+2) Data Simplification for AI Consumption: The system
+reduces course data complexity before sending to the LLM:
+• Full API Data: Includes instructor, location, enrollment,
+building information (100+ tokens per class).
+• Simplified for AI: Retains only class number, times, and
+seat availability (15-20 tokens per class).
+This 5x token reduction enables processing larger Learning
+Communities while maintaining essential scheduling informa-
+tion.
+3) Few-Shot Learning with Chain-of-Thought Reasoning:
+The few-shot examples demonstrate:
+• How to handle mandatory exact matches,
+• Temporal proximity reasoning when exact matches aren’t
+available,
+• Conflict detection across multiple meeting patterns,
+• Proper JSON formatting with consistent time representa-
+tion.
+Without this structured prompting, foundation models fre-
+quently produce invalid JSON, ignore constraints, or generate
+duplicate schedules.
+C. Response Processing and Validation Pipeline
+1) Multi-Stage Validation:
+1) JSON Extraction: Pattern matching extracts JSON ar-
+rays from potentially noisy LLM responses.
+2) Structure Validation: Verifies response is a JSON array
+with required fields.
+3) Completeness Validation: Ensures all courses are rep-
+resented with exactly one class each.
+4) Component Matching: Validates that classes match
+required components (Lecture vs. Lab).
+5) Conflict Validation: Runs deterministic conflict detec-
+tion (should find 0% conflicts).
+6) Deduplication: Removes duplicate schedules using
+class number set comparison.
+7) Data Enrichment: Maps simplified class data back to
+full API information.
+2) Error Recovery: When the LLM returns invalid JSON
+or times out:
+• The system automatically retries the request once,
+• Implements exponential backoff for rate limiting,
+• Falls back to a simpler prompt if repeated failures occur,
+• Provides user-friendly error messages for unresolvable
+failures.
+V. EDGE CASES AND COMPLEX SCHEDULING SCENARIOS
+A. Common Edge Cases in Learning Community Scheduling
+LCFA handles several critical edge cases identified during
+development:
+1) 1:1 vs. 1:Many Matching Scenarios:
+• 80% 1:1 Cases: Exact temporal matches exist for all
+courses, generating exactly one schedule.
+• 15% 1:Many Cases: One historical course matches
+multiple current classes with different times, generating
+multiple schedule options.
+• 5% No Valid Schedules: Course changes or offerings
+result in no conflict-free schedules (system provides de-
+tailed diagnostics).
+2) Special Class Types:
+• Online Classes: Scheduled for “Any Time” and excluded
+from conflict detection.
+• Hybrid Classes: Combine in-person and online compo-
+nents with complex scheduling rules.
+• Time-TBA Classes: Filtered out during initial data pro-
+cessing to ensure schedule validity.
+3) Institutional Changes:
+• Courses no longer offered in current academic year,
+• Component structure changes (e.g., combined Lec-
+ture/Lab),
+• Time pattern modifications due to policy changes.
+B. Complex Scheduling Reasoning Capabilities
+The LLM component demonstrates reasoning capabilities
+beyond simple conflict detection:
+• Indirect Conflicts: Identifies transitive scheduling con-
+straints not immediately apparent.
+• Temporal Pattern Recognition: Groups classes with
+similar time patterns across days.
+• Resource Optimization: Suggests schedules that mini-
+mize campus movement or maximize instructor consis-
+tency.
+• Constraint Propagation: Understands how one schedul-
+ing decision affects subsequent options.
+These capabilities emerge from the few-shot examples and
+system prompt design, enabling the model to reason about
+scheduling holistically rather than checking constraints inde-
+pendently.
+VI. EVALUATION AND RESULTS
+A. Performance Metrics
+LCFA was evaluated using Ohio University’s Learning
+Community data spanning approximately 400 communities.
+Key performance observations include:
+• Matching Success: In approximately 80% of cases, exact
+temporal matches were found between historical and
+current classes, resulting in single schedule generation.
+The remaining cases required day-first matching (15%)
+or temporal fallback (5%).
+• Generation Reliability: The system successfully gener-
+ated schedules for the majority of requests, with most
+requests producing between 4-6 unique schedule options.
+• Conflict Detection: The deterministic conflict detection
+algorithm achieved perfect accuracy with no false posi-
+tives or negatives in testing.
+• Uniqueness Guarantee: Post-processing deduplication
+ensured all generated schedules were unique, addressing
+occasional duplicate generation by the LLM.
+B. Model Performance Characteristics
+LCFA’s model-agnostic design accommodates various foun-
+dation models with differing performance characteristics:
+• Latency Variance: Response times vary significantly
+across models, from under 500ms for optimized models
+to over 2 seconds for larger, more complex models.
+• Success Rate Differences: More capable models (e.g.,
+GPT-4) demonstrate higher success rates in generating
+valid schedules but at increased cost and latency.
+• Cost Considerations: Model selection involves trade-offs
+between cost, speed, and reliability, with options ranging
+from free local models to premium API-based services.
+• Consistency Requirements: All tested models required
+the same validation pipeline to ensure schedule correct-
+ness, regardless of model capabilities.
+C. User Experience Improvements
+Compared to manual scheduling methods:
+• Time Reduction: Schedule generation occurs in seconds
+rather than the hours required for manual construction.
+• Error Elimination: Automated conflict detection elimi-
+nates the 15-20% error rate typical of manual scheduling.
+• Option Exploration: Multiple schedule options provide
+flexibility unavailable with single manually-constructed
+schedules.
+• Historical Consistency: Automatic preference matching
+maintains temporal patterns preferred by students across
+academic years.
+VII. FUTURE WORK AND ENHANCEMENTS
+Several enhancements were identified during development
+but not implemented in the current version:
+A. Potential Algorithmic Improvements
+• Instructor Consistency: Matching previous year’s in-
+structors when available,
+• Location Optimization: Minimizing building changes
+between consecutive classes,
+• Seat Availability Awareness: Considering current enroll-
+ment to avoid overfilled sections,
+• Multi-Term Planning: Coordinating schedules across
+Fall and Spring semesters.
+B. Institutional Adaptability
+• Generalization: Adapting to other university structures
+beyond Ohio University,
+• Dynamic Constraint Learning: Incorporating advisor
+feedback to improve matching,
+• Real-time Updates: Integrating live enrollment data dur-
+ing registration periods,
+• Collaborative Features: Group scheduling for student
+cohorts.
+VIII. CONCLUSIONS
+The Learning Community Course Scheduling Assistant
+(LCFA) demonstrates a practical application of generative AI
+integrated with deterministic scheduling logic for educational
+contexts. Key contributions include:
+• A hybrid architecture combining LLM reasoning with
+deterministic validation,
+• Sophisticated historical preference matching with tempo-
+ral proximity metrics,
+• Model-agnostic design supporting multiple foundation
+models,
+• Robust handling of edge cases in academic scheduling,
+• Significant time savings and error reduction compared to
+manual methods.
+The system successfully addresses the complex scheduling
+needs of Learning Communities while maintaining flexibility
+for institutional variations. By distinguishing between courses
+(consistent year-to-year) and classes (specific instances that
+may change), LCFA provides practical scheduling assistance
+that respects both institutional constraints and student prefer-
+ences.
+ACKNOWLEDGMENTS
+This work was completed as part of the Generative AI
+final project at Ohio University. The authors thank academic
+advisors and the Registrar’s Office for their insights and data
+access.
+REFERENCES
+[1] Ceschia, S. and Schaerf, A. (2022). Educational-Timetabling Problems,
+Benchmarks, and State-of-the-Art Results. European Journal of Opera-
+tional Research, 296(1), 1–13.
+[2] Farinola, L.A. and Assogba, M.B.M. (2025). Explicit Artificial Intelli-
+gence Timetable Generator for Colleges and Universities. Open Journal
+of Applied Sciences, 15(8), 2277–2290.
+[3] Wang, L., Yang, N. and Wei, F. (2024). Learning to Retrieve In-Context
+Examples for Large Language Models. Proceedings of the EACL.

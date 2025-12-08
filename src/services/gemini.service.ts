@@ -221,7 +221,6 @@ export async function generateSchedules(
       }
       
       if (!timeString) {
-        console.error('Class missing time data:', cls);
         throw new Error(`Class ${cls.subject} ${cleanCatalogNumber} #${cls.classNumber} is missing required time information`);
       }
       
@@ -255,173 +254,22 @@ export async function generateSchedules(
   });
 
   // Build system prompt
-  const systemPrompt = `You are an advising assistant that generates conflict-free course schedules. Your objective is to schedule 1 class from each course, matching historical times when available.
-
-Rules:
-- Generate the MAXIMUM number of unique schedules possible (up to 8, but fewer if that's all that's possible)
-- If a class matches historical data exactly, you MUST use that class in ALL schedules (never change it)
-- If more then 8 schedules are possible try to make the 8 schedules as unique as possible.
-- Select exactly ONE class from EACH course
-- CRITICAL: Every schedule MUST be UNIQUE - no two schedules can have the exact same set of classNumbers
-- To ensure uniqueness: Before adding a schedule, check that its classNumbers differ from ALL previous schedules
-- If you cannot create a unique schedule, DO NOT add it - return only the unique schedules you can create
-   - NO time conflicts between classes from different courses
-- TIME MATCHING PRIORITY (when no exact match exists):
-  1. EXACT MATCH: Same days AND same time (e.g., historical "TuTh 1:00 PM" matches "TuTh 1:00 PM") - MANDATORY if available
-  2. SAME DAYS, CLOSEST TIME: Match days first, then closest time (e.g., historical "TuTh 1:00 PM" → prefer "TuTh 12:00 PM" over "TuTh 10:00 AM" over "MWF 1:00 PM")
-  3. DIFFERENT DAYS, CLOSEST TIME: If no same-day match, use closest time regardless of days
-  Example: If historical was "TuTh 1:00 PM" and options are "TuTh 12:00 PM", "TuTh 10:00 AM", "MWF 1:00 PM" → choose "TuTh 12:00 PM" (same days, closest time)
-- MULTIPLE MEETING TIMES: Some classes meet at different times on different days (e.g., "MWF 10:45 AM-11:40 AM; Th 11:00 AM-11:55 AM")
-  - When checking conflicts, check ALL meeting times - a conflict exists if ANY meeting time overlaps
-  - When matching historical data, match if ANY meeting time matches (prefer exact matches across all times)
-- Courses with different components (Lecture, Lab, Discussion) are separate courses
-- Times must be in 12-hour AM/PM format (e.g., "9:40 AM-10:35 AM")
-- Return ONLY valid JSON array of schedules - return exactly as many unique schedules as possible, not always 5`;
+  const systemPrompt = `You are an advising assistant that generates conflict-free course schedules. Your objective is to schedule 1 class from each course, matching historical times when available. Rules: - Generate the MAXIMUM number of unique schedules possible (up to 8, but fewer if that's all that's possible) - If a class matches historical data exactly, you MUST use that class in ALL schedules (never change it) - If more then 8 schedules are possible try to make the 8 schedules as unique as possible. - Select exactly ONE class from EACH course - CRITICAL: Every schedule MUST be UNIQUE - no two schedules can have the exact same set of classNumbers - To ensure uniqueness: Before adding a schedule, check that its classNumbers differ from ALL previous schedules - If you cannot create a unique schedule, DO NOT add it - return only the unique schedules you can create - NO time conflicts between classes from different courses - TIME MATCHING PRIORITY (when no exact match exists): 1. EXACT MATCH: Same days AND same time (e.g., historical "TuTh 1:00 PM" matches "TuTh 1:00 PM") - MANDATORY if available 2. SAME DAYS, CLOSEST TIME: Match days first, then closest time (e.g., historical "TuTh 1:00 PM" → prefer "TuTh 12:00 PM" over "TuTh 10:00 AM" over "MWF 1:00 PM") 3. DIFFERENT DAYS, CLOSEST TIME: If no same-day match, use closest time regardless of days Example: If historical was "TuTh 1:00 PM" and options are "TuTh 12:00 PM", "TuTh 10:00 AM", "MWF 1:00 PM" → choose "TuTh 12:00 PM" (same days, closest time) - MULTIPLE MEETING TIMES: Some classes meet at different times on different days (e.g., "MWF 10:45 AM-11:40 AM; Th 11:00 AM-11:55 AM") - When checking conflicts, check ALL meeting times - a conflict exists if ANY meeting time overlaps - When matching historical data, match if ANY meeting time matches (prefer exact matches across all times) - Courses with different components (Lecture, Lab, Discussion) are separate courses - Times must be in 12-hour AM/PM format (e.g., "9:40 AM-10:35 AM") - Return ONLY valid JSON array of schedules - return exactly as many unique schedules as possible, not always 5`;
 
   // Build few-shot example
-  const fewShotExampleUser = `Generate a schedule using these available courses:
-[
-  {
-    "subject": "CS",
-    "catalogNumber": "2300",
-    "component": "Lecture",
-    "classes": [
-      {
-        "classNumber": 1259,
-        "times": "MWF 9:40 AM-10:35 AM",
-        "seats": "43/72"
-      }
-    ]
-  },
-  {
-    "subject": "CS",
-    "catalogNumber": "2300",
-    "component": "Lab",
-    "classes": [
-      {
-        "classNumber": 1270,
-        "times": "F 2:00 PM-3:50 PM",
-        "seats": "14/24"
-      },
-      {
-        "classNumber": 1229,
-        "times": "W 5:15 PM-7:05 PM",
-        "seats": "9/24"
-      },
-      {
-        "classNumber": 1260,
-        "times": "W 3:05 PM-4:55 PM",
-        "seats": "20/24"
-      }
-    ]
-  },
-  {
-    "subject": "EE",
-    "catalogNumber": "1024",
-    "component": "Lecture",
-    "classes": [
-      {
-        "classNumber": 1139,
-        "times": "MWF 12:55 PM-1:50 PM",
-        "seats": "56/144"
-      }
-    ]
-  },
-  {
-    "subject": "EE",
-    "catalogNumber": "1024",
-    "component": "Lab",
-    "classes": [
-      {
-        "classNumber": 1140,
-        "times": "W 2:00 PM-3:50 PM",
-        "seats": "14/20"
-      },
-      {
-        "classNumber": 1141,
-        "times": "Th 3:05 PM-4:55 PM",
-        "seats": "20/20"
-      }
-    ]
-  },
-  {
-    "subject": "ET",
-    "catalogNumber": "2905",
-    "component": "Lecture",
-    "classes": [
-      {
-        "classNumber": 1549,
-        "times": "TuTh 12:30 PM-1:50 PM",
-        "seats": "153/200"
-      },
-      {
-        "classNumber": 1550,
-        "times": "TuTh 2:00 PM-3:20 PM",
-        "seats": "177/180"
-      }
-    ]
-  }
-]
-and this historical data:
-1. CS 2300 (Lecture) - Time: M W F 9:40 AM - 10:35 AM
-2. CS 2300 (Lab) - Time: W 5:15 PM - 7:05 PM
-3. EE 1024 (Lecture) - Time: M W F 12:55 PM - 1:50 PM
-4. EE 1024 (Lab) - Time: Th 3:05 PM - 4:55 PM
-5. ET 2905 (Lecture) - Time: Tu Th 9:30 AM - 10:50 AM`;
+  const fewShotExampleUser = `Generate a schedule using these available courses: [{"subject": "CS", "catalogNumber": "2300", "component": "Lecture", "classes": [{"classNumber": 1259, "times": "MWF 9:40 AM-10:35 AM", "seats": "43/72"}]}, {"subject": "CS", "catalogNumber": "2300", "component": "Lab", "classes": [{"classNumber": 1270, "times": "F 2:00 PM-3:50 PM", "seats": "14/24"}, {"classNumber": 1229, "times": "W 5:15 PM-7:05 PM", "seats": "9/24"}, {"classNumber": 1260, "times": "W 3:05 PM-4:55 PM", "seats": "20/24"}]}, {"subject": "EE", "catalogNumber": "1024", "component": "Lecture", "classes": [{"classNumber": 1139, "times": "MWF 12:55 PM-1:50 PM", "seats": "56/144"}]}, {"subject": "EE", "catalogNumber": "1024", "component": "Lab", "classes": [{"classNumber": 1140, "times": "W 2:00 PM-3:50 PM", "seats": "14/20"}, {"classNumber": 1141, "times": "Th 3:05 PM-4:55 PM", "seats": "20/20"}]}, {"subject": "ET", "catalogNumber": "2905", "component": "Lecture", "classes": [{"classNumber": 1549, "times": "TuTh 12:30 PM-1:50 PM", "seats": "153/200"}, {"classNumber": 1550, "times": "TuTh 2:00 PM-3:20 PM", "seats": "177/180"}]}] and this historical data: 1. CS 2300 (Lecture) - Time: M W F 9:40 AM - 10:35 AM 2. CS 2300 (Lab) - Time: W 5:15 PM - 7:05 PM 3. EE 1024 (Lecture) - Time: M W F 12:55 PM - 1:50 PM 4. EE 1024 (Lab) - Time: Th 3:05 PM - 4:55 PM 5. ET 2905 (Lecture) - Time: Tu Th 9:30 AM - 10:50 AM`;
 
-  const fewShotExampleAssistant = `[
-  {
-    "scheduleNumber": 1,
-    "classes": [
-      {
-        "subject": "CS",
-        "catalogNumber": "2300",
-        "component": "Lecture",
-        "classNumber": 1259,
-        "times": "MWF 9:40 AM-10:35 AM"
-      },
-      {
-        "subject": "CS",
-        "catalogNumber": "2300",
-        "component": "Lab",
-        "classNumber": 1229,
-        "times": "W 5:15 PM-7:05 PM"
-      },
-      {
-        "subject": "EE",
-        "catalogNumber": "1024",
-        "component": "Lecture",
-        "classNumber": 1139,
-        "times": "MWF 12:55 PM-1:50 PM"
-      },
-      {
-        "subject": "EE",
-        "catalogNumber": "1024",
-        "component": "Lab",
-        "classNumber": 1141,
-        "times": "Th 3:05 PM-4:55 PM"
-      },
-      {
-        "subject": "ET",
-        "catalogNumber": "2905",
-        "component": "Lecture",
-        "classNumber": 1549,
-        "times": "TuTh 12:30 PM-1:50 PM"
-      }
-    ]
-  }
-]`;
+  const fewShotExampleAssistant = `[{"scheduleNumber": 1, "classes": [{"subject": "CS", "catalogNumber": "2300", "component": "Lecture", "classNumber": 1259, "times": "MWF 9:40 AM-10:35 AM"}, {"subject": "CS", "catalogNumber": "2300", "component": "Lab", "classNumber": 1229, "times": "W 5:15 PM-7:05 PM"}, {"subject": "EE", "catalogNumber": "1024", "component": "Lecture", "classNumber": 1139, "times": "MWF 12:55 PM-1:50 PM"}, {"subject": "EE", "catalogNumber": "1024", "component": "Lab", "classNumber": 1141, "times": "Th 3:05 PM-4:55 PM"}, {"subject": "ET", "catalogNumber": "2905", "component": "Lecture", "classNumber": 1549, "times": "TuTh 12:30 PM-1:50 PM"}]}]`;
 
   // Build actual user request
   let historicalDataText = '';
   if (previousSchedule && previousSchedule.classes) {
-    historicalDataText = `\nand this historical data:\n${previousSchedule.classes.map((cls, idx) => 
+    historicalDataText = ` and this historical data: ${previousSchedule.classes.map((cls, idx) => 
       `${idx + 1}. ${cls.subject} ${cls.catalogNumber}${cls.component ? ` (${cls.component})` : ''} - Time: ${cls.timeRange}`
-    ).join('\n')}`;
+    ).join(' ')}`;
   }
 
-  const actualUserRequest = `Generate a schedule using these available courses:
-${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
+  const actualUserRequest = `Generate a schedule using these available courses: ${JSON.stringify(courseInfo)}${historicalDataText}`;
 
   // Log what we're sending to OpenRouter
   console.log('='.repeat(80));
@@ -432,12 +280,74 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
   console.log('\nCourse Information:');
   console.log(JSON.stringify(courseInfo, null, 2));
   console.log('\nMessages:');
-  console.log(JSON.stringify([
+  
+  // Format messages for better readability
+  const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: fewShotExampleUser },
     { role: 'assistant', content: fewShotExampleAssistant },
     { role: 'user', content: actualUserRequest },
-  ], null, 2));
+  ];
+  
+  messages.forEach((msg, index) => {
+    console.log(`\n[${index + 1}] ${msg.role.toUpperCase()}:`);
+    let content = msg.content;
+    
+    // For user messages, try to parse and format the JSON courses array
+    if (msg.role === 'user' && content.includes('Generate a schedule using these available courses:')) {
+      const parts = content.split(' and this historical data:');
+      const coursesPart = parts[0].replace('Generate a schedule using these available courses:', '').trim();
+      
+      // Try to parse the courses JSON
+      try {
+        const parsedCourses = JSON.parse(coursesPart);
+        console.log('Courses:', JSON.stringify(parsedCourses, null, 2));
+        if (parts[1]) {
+          console.log('Historical data:', parts[1].trim());
+        }
+        return;
+      } catch (e) {
+        // If parsing fails, try to find JSON array in the content
+        const jsonMatch = coursesPart.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            const parsedCourses = JSON.parse(jsonMatch[0]);
+            console.log('Courses:', JSON.stringify(parsedCourses, null, 2));
+            if (parts[1]) {
+              console.log('Historical data:', parts[1].trim());
+            }
+            return;
+          } catch (e2) {
+            // Fall through
+          }
+        }
+      }
+    }
+    
+    // For assistant messages, try to parse and format the JSON response
+    if (msg.role === 'assistant') {
+      try {
+        const parsedResponse = JSON.parse(content);
+        console.log(JSON.stringify(parsedResponse, null, 2));
+        return;
+      } catch (e) {
+        // If not valid JSON, try to find JSON array
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            const parsedJson = JSON.parse(jsonMatch[0]);
+            console.log(JSON.stringify(parsedJson, null, 2));
+            return;
+          } catch (e2) {
+            // Fall through
+          }
+        }
+      }
+    }
+    
+    // For system messages or if parsing fails, show as-is
+    console.log(content);
+  });
   console.log('='.repeat(80));
 
   const requestBody = {
@@ -479,7 +389,6 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenRouter API error response:', errorText);
       throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
     }
 
@@ -517,16 +426,12 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
     if (jsonMatch) {
       responseText = jsonMatch[0];
     }
-
-    console.log('Parsed response text:', responseText);
     
     // Check if response is an error message
     let parsedResponse: any;
     try {
       parsedResponse = JSON.parse(responseText);
     } catch (e) {
-      console.error('Failed to parse JSON:', e);
-      console.error('Response text was:', responseText);
       throw new Error('Invalid JSON response from OpenRouter');
     }
 
@@ -542,19 +447,12 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
 
     const schedules: Schedule[] = parsedResponse;
 
-    console.log('Parsed schedules:', JSON.stringify(schedules, null, 2));
-    
     // Filter out duplicate schedules - a schedule is unique if its set of classNumbers is different
     const uniqueSchedules: Schedule[] = [];
     const seenClassNumberSets = new Set<string>();
     
-    console.log('\n' + '='.repeat(80));
-    console.log('VALIDATING SCHEDULE UNIQUENESS:');
-    console.log('='.repeat(80));
-    
     for (const schedule of schedules) {
       if (!schedule.classes || !Array.isArray(schedule.classes)) {
-        console.warn('Skipping schedule with invalid classes:', schedule);
         continue;
       }
       
@@ -564,22 +462,11 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
         .sort((a, b) => a - b)
         .join(',');
       
-      console.log(`Schedule ${schedule.scheduleNumber}: classNumbers = [${classNumbers}]`);
-      
       if (!seenClassNumberSets.has(classNumbers)) {
         seenClassNumberSets.add(classNumbers);
         uniqueSchedules.push(schedule);
-        console.log(`  -> KEEPING (unique)`);
-      } else {
-        console.warn(`  -> REMOVING (duplicate of previous schedule)`);
       }
     }
-    
-    console.log(`\nTotal schedules: ${schedules.length}, Unique schedules: ${uniqueSchedules.length}`);
-    if (schedules.length !== uniqueSchedules.length) {
-      console.warn(`Filtered ${schedules.length - uniqueSchedules.length} duplicate schedule(s).`);
-    }
-    console.log('='.repeat(80) + '\n');
     
     // Renumber schedules sequentially
     const finalSchedules = uniqueSchedules.map((schedule, index) => ({
@@ -588,8 +475,6 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
     }));
     
     const schedulesToUse = finalSchedules;
-    
-    console.log('Unique schedules after filtering:', JSON.stringify(schedulesToUse, null, 2));
     
     // Helper function to map a class from OpenRouter response back to full class data
     const mapToFullClassData = (cls: ScheduleClass): ScheduleClass | null => {
@@ -664,23 +549,12 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
       });
       
       if (!course) {
-        console.warn(`Course not found for ${cls.subject} ${cleanCatalogNumber}${component ? ` (${component})` : ''}`);
-        console.warn('Available courses:', courses.map(c => ({
-          subject: c.subject,
-          catalogNumber: c.catalogNumber,
-          component: c.component,
-        })));
         return null;
       }
       
       const actualClass = course.classes.find((c) => c.classNumber === cls.classNumber);
       
       if (!actualClass) {
-        console.warn(
-          `Class ${cls.classNumber} not found in ${cls.subject} ${cleanCatalogNumber}${component ? ` (${component})` : ''}`,
-        );
-        console.warn(`Available classNumbers in this course:`, course.classes.map(c => c.classNumber));
-        console.warn('Using first available class as fallback');
         if (course.classes.length > 0) {
           const fallbackClass = course.classes[0];
           return mapToFullClassData({
@@ -880,15 +754,13 @@ ${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
       };
     });
     
-    console.log('Final enriched schedules:', JSON.stringify(enrichedSchedules, null, 2));
-    
     return enrichedSchedules;
   } catch (error) {
-    console.error('Error calling OpenRouter:', error);
     if (error instanceof Error) {
       throw error;
     }
     throw new Error('Failed to generate schedules with OpenRouter API');
   }
 }
+
 

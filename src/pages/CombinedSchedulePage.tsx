@@ -94,7 +94,6 @@ export function CombinedSchedulePage() {
                 }
               });
             } catch (e) {
-              console.error('Failed to parse saved course selections:', e);
               // Fallback to auto-select all
               parsed.forEach((course: Course) => {
                 const courseKey = getCourseKey(course.subject, course.catalogNumber);
@@ -120,7 +119,7 @@ export function CombinedSchedulePage() {
           setCourseSelections(newSelections);
         }
       } catch (e) {
-        console.error('Failed to parse saved courses:', e);
+        // Failed to parse saved courses
       }
     }
 
@@ -133,7 +132,7 @@ export function CombinedSchedulePage() {
           setSchedules(parsed);
         }
       } catch (e) {
-        console.error('Failed to parse saved schedules:', e);
+        // Failed to parse saved schedules
       }
     }
 
@@ -391,6 +390,12 @@ export function CombinedSchedulePage() {
     localStorage.setItem('scheduleGenerationError', JSON.stringify('Generation cancelled by user.'));
   };
 
+  const handleClearSchedules = () => {
+    setSchedules([]);
+    localStorage.removeItem('generatedSchedules');
+    setError(null);
+  };
+
   const handlePreviousScheduleSelect = (schedule: PreviousSchedule | null) => {
     setSelectedPreviousSchedule(schedule);
     setSelectedCommunity(null); // Clear community selection when using old schedules
@@ -402,32 +407,6 @@ export function CombinedSchedulePage() {
     setSelectedPreviousSchedule(null); // Clear old schedule selection
     
     if (community) {
-      // Console log all parsed community information
-      console.log('=== Selected Community Information ===');
-      console.log('Cluster Call Number:', community.clusterCallNumber);
-      console.log('Prefix/Number/Section:', community.pfxNumSection);
-      console.log('College:', community.college);
-      console.log('Communities:', community.communities);
-      console.log('Course:', community.course);
-      console.log('Seats:', community.seats ?? 'Not specified');
-      console.log('Total Classes:', community.classes.length);
-      console.log('\n--- Classes in Community ---');
-      community.classes.forEach((cls, index) => {
-        console.log(`\nClass ${index + 1}:`);
-        console.log('  Class Number:', cls.classNumber);
-        console.log('  Subject:', cls.subject);
-        console.log('  Catalog Number:', cls.catalogNumber);
-        console.log('  Section:', cls.section);
-        console.log('  Component:', cls.component);
-        console.log('  Title:', cls.title);
-        console.log('  Days:', cls.days);
-        console.log('  Time Start:', cls.meetTimeStart);
-        console.log('  Time End:', cls.meetTimeEnd);
-        console.log('  Time Range:', `${cls.days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`);
-      });
-      console.log('\n=== Full Community Object ===');
-      console.log(JSON.stringify(community, null, 2));
-      
       // Convert community to PreviousSchedule format
       const previousSchedule: PreviousSchedule = {
         scheduleNumber: community.clusterCallNumber,
@@ -461,8 +440,6 @@ export function CombinedSchedulePage() {
         }),
       };
       setSelectedPreviousSchedule(previousSchedule);
-    } else {
-      console.log('Community selection cleared');
     }
     setError(null);
   };
@@ -637,7 +614,7 @@ export function CombinedSchedulePage() {
             // Don't add to newExpanded - courses should start closed when transferred
           }
         } catch (err) {
-          console.error(`Failed to fetch ${subject} ${catalogNumber}:`, err);
+          // Failed to fetch course
         }
       }
 
@@ -646,7 +623,6 @@ export function CombinedSchedulePage() {
       setExpandedCourses(newExpanded);
     } catch (err) {
       setError('Failed to load previous schedule courses. Please try again.');
-      console.error('Error loading previous schedule:', err);
     }
   };
 
@@ -1097,7 +1073,16 @@ export function CombinedSchedulePage() {
 
           {schedules.length > 0 && (
             <div className="generated-schedules">
-              <h3>Generated Schedules ({schedules.length})</h3>
+              <div className="generated-schedules-header">
+                <h3>Generated Schedules ({schedules.length})</h3>
+                <button
+                  className="clear-schedules-button"
+                  onClick={handleClearSchedules}
+                  title="Clear all generated schedules"
+                >
+                  Clear All
+                </button>
+              </div>
               <div className="schedules-grid">
                 {schedules.map((schedule) => (
                   <ScheduleCard key={schedule.scheduleNumber} schedule={schedule} />
