@@ -18,13 +18,32 @@ export function ScheduleCard({ schedule }: ScheduleCardProps) {
             <div className="class-header">
               <span className="class-code">
                 {classItem.subject} {classItem.catalogNumber}
-                {classItem.component && ` (${classItem.component})`}
               </span>
               <span className="class-number">#{classItem.classNumber}</span>
             </div>
-            <div className="class-title">{classItem.title}</div>
+            <div className="class-title">
+              {(() => {
+                // Remove component info from title (e.g., "(Lab)", "(LEC)", "(DISc)", "(Lecture)", etc.)
+                if (!classItem.title) return '';
+                let cleanTitle = classItem.title;
+                // Remove patterns like "(Lab)", "(LEC)", "(DISc)", "(Lecture)", "(Discussion)", "Lab", "LEC", etc.
+                // Match with or without parentheses, case-insensitive
+                cleanTitle = cleanTitle.replace(/\s*\(?\s*(Lab|LEC|DISc|Lecture|Discussion|Seminar|Disc|Lec)\s*\)?\s*/gi, '').trim();
+                // Remove any remaining empty parentheses or extra spaces
+                cleanTitle = cleanTitle.replace(/\s*\(\)\s*/g, '').trim();
+                cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+                return cleanTitle;
+              })()}
+            </div>
             
             <div className="class-details">
+              {classItem.component && (
+                <div className="class-detail-row">
+                  <span className="detail-label">Component:</span>
+                  <span className="detail-value">{classItem.component}</span>
+                </div>
+              )}
+              
               {classItem.section && (
                 <div className="class-detail-row">
                   <span className="detail-label">Section:</span>
@@ -52,9 +71,61 @@ export function ScheduleCard({ schedule }: ScheduleCardProps) {
                   <span className="detail-value">
                     {(() => {
                       // Format time for display: convert "09:40-10:35" to "9:40AM-10:35AM"
+                      // Also handles multiple meeting times separated by semicolons
                       const formatTimeForDisplay = (timeStr: string): string => {
+                        // Handle multiple meeting times separated by semicolons
+                        if (timeStr.includes(';')) {
+                          const parts = timeStr.split(';');
+                          const formatSingleTime = (singleTime: string): string => {
+                            const trimmed = singleTime.trim();
+                            
+                            // If it's TBA, return as-is
+                            if (trimmed === 'TBA') {
+                              return trimmed;
+                            }
+                            
+                            // Check if it's already formatted (has AM/PM)
+                            if (trimmed.includes('AM') || trimmed.includes('PM')) {
+                              // Ensure proper spacing and format
+                              // Handle cases like "M W F 10:45 AM-11:40 AM" -> "MWF 10:45 AM-11:40 AM"
+                              const dayPattern = /^((?:M|Tu|W|Th|F|S)\s*(?:M|Tu|W|Th|F|S|\s)*)\s+(.+)$/i;
+                              const match = trimmed.match(dayPattern);
+                              if (match) {
+                                // Remove spaces from days (e.g., "M W F" -> "MWF")
+                                const days = match[1].replace(/\s+/g, '');
+                                const timePart = match[2].trim();
+                                return `${days} ${timePart}`;
+                              }
+                              return trimmed;
+                            }
+                            
+                            // If no AM/PM, try to parse and format
+                            // Extract days and time range
+                            const dayPattern = /^((?:M|Tu|W|Th|F|S)\s*(?:M|Tu|W|Th|F|S|\s)*)\s+(.+)$/i;
+                            const match = trimmed.match(dayPattern);
+                            if (match) {
+                              const days = match[1].replace(/\s+/g, ''); // Remove spaces from days
+                              const timeRange = match[2].trim();
+                              // Format time range if needed
+                              return `${days} ${timeRange}`;
+                            }
+                            
+                            return trimmed;
+                          };
+                          return parts.map(part => formatSingleTime(part)).join('; ');
+                        }
+                        
                         // Check if it's already formatted (has AM/PM) or is TBA
                         if (timeStr.includes('AM') || timeStr.includes('PM') || timeStr === 'TBA') {
+                          return timeStr;
+                        }
+                        
+                        // Check if times already starts with day patterns (e.g., "TuTh 12:30 PM-1:50 PM")
+                        const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
+                        const timesHasDays = timeStr.match(dayPattern);
+                        
+                        if (timesHasDays) {
+                          // Times already includes days - don't add them again
                           return timeStr;
                         }
                         
@@ -119,16 +190,6 @@ export function ScheduleCard({ schedule }: ScheduleCardProps) {
                 </div>
               )}
               
-              {classItem.minCreditHours && (
-                <div className="class-detail-row">
-                  <span className="detail-label">Credits:</span>
-                  <span className="detail-value">
-                    {classItem.minCreditHours === classItem.maxCreditHours
-                      ? `${classItem.minCreditHours}`
-                      : `${classItem.minCreditHours}-${classItem.maxCreditHours}`}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         ))}

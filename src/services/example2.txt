@@ -1,0 +1,440 @@
+Given these courses
+[
+  {
+    "subject": "CHEM",
+    "catalogNumber": "1500",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 7867,
+        "times": "TuTh 11:00 AM-12:20 PM",
+        "seats": "233/244"
+      },
+      {
+        "classNumber": 7868,
+        "times": "TuTh 12:30 PM-1:50 PM",
+        "seats": "202/244"
+      },
+      {
+        "classNumber": 7869,
+        "times": "TuTh 11:00 AM-12:20 PM",
+        "seats": "0/5"
+      },
+      {
+        "classNumber": 7870,
+        "times": "TuTh 12:30 PM-1:50 PM",
+        "seats": "2/20"
+      }
+    ]
+  },
+  {
+    "subject": "CHEM",
+    "catalogNumber": "1500",
+    "component": "Lab",
+    "classes": [
+      {
+        "classNumber": 8007,
+        "times": "W 8:35 AM-10:35 AM",
+        "seats": "32/32"
+      },
+      {
+        "classNumber": 8008,
+        "times": "W 10:45 AM-12:45 PM",
+        "seats": "52/52"
+      },
+      {
+        "classNumber": 8009,
+        "times": "W 12:55 PM-2:55 PM",
+        "seats": "64/68"
+      },
+      {
+        "classNumber": 8010,
+        "times": "W 3:05 PM-5:05 PM",
+        "seats": "49/52"
+      },
+      {
+        "classNumber": 8011,
+        "times": "W 5:15 PM-7:15 PM",
+        "seats": "36/36"
+      },
+      {
+        "classNumber": 8012,
+        "times": "W 8:35 AM-10:35 AM",
+        "seats": "31/36"
+      },
+      {
+        "classNumber": 8013,
+        "times": "W 10:45 AM-12:45 PM",
+        "seats": "40/52"
+      },
+      {
+        "classNumber": 8014,
+        "times": "W 12:55 PM-2:55 PM",
+        "seats": "55/68"
+      },
+      {
+        "classNumber": 8015,
+        "times": "W 3:05 PM-5:05 PM",
+        "seats": "48/52"
+      },
+      {
+        "classNumber": 8016,
+        "times": "W 5:15 PM-7:15 PM",
+        "seats": "28/36"
+      }
+    ]
+  },
+  {
+    "subject": "ET",
+    "catalogNumber": "1100",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM",
+        "seats": "138/192"
+      }
+    ]
+  },
+  {
+    "subject": "ET",
+    "catalogNumber": "1100",
+    "component": "Lab",
+    "classes": [
+      {
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM",
+        "seats": "19/24"
+      },
+      {
+        "classNumber": 1286,
+        "times": "WF 5:15 PM-6:10 PM",
+        "seats": "5/24"
+      },
+      {
+        "classNumber": 1321,
+        "times": "WF 11:50 AM-12:45 PM",
+        "seats": "20/24"
+      },
+      {
+        "classNumber": 1322,
+        "times": "WF 12:55 PM-1:50 PM",
+        "seats": "21/24"
+      },
+      {
+        "classNumber": 1326,
+        "times": "TuTh 3:55 PM-4:50 PM",
+        "seats": "12/24"
+      },
+      {
+        "classNumber": 1327,
+        "times": "TuTh 5:00 PM-5:55 PM",
+        "seats": "18/24"
+      },
+      {
+        "classNumber": 1615,
+        "times": "TuTh 12:55 PM-1:50 PM",
+        "seats": "21/24"
+      },
+      {
+        "classNumber": 1616,
+        "times": "TuTh 2:00 PM-2:55 PM",
+        "seats": "22/24"
+      }
+    ]
+  },
+  {
+    "subject": "ET",
+    "catalogNumber": "2100",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM",
+        "seats": "120/144"
+      }
+    ]
+  },
+  {
+    "subject": "ET",
+    "catalogNumber": "2100",
+    "component": "Lab",
+    "classes": [
+      {
+        "classNumber": 1290,
+        "times": "Tu 5:10 PM-7:00 PM",
+        "seats": "23/24"
+      },
+      {
+        "classNumber": 1291,
+        "times": "Th 5:10 PM-7:00 PM",
+        "seats": "20/24"
+      },
+      {
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM",
+        "seats": "22/24"
+      },
+      {
+        "classNumber": 1522,
+        "times": "F 4:10 PM-6:00 PM",
+        "seats": "17/24"
+      },
+      {
+        "classNumber": 1287,
+        "times": "Th 12:30 PM-2:30 PM",
+        "seats": "17/24"
+      },
+      {
+        "classNumber": 1288,
+        "times": "W 12:55 PM-2:45 PM",
+        "seats": "21/24"
+      }
+    ]
+  }
+]
+
+And this historical data
+CS 2300 (Lecture) - Time: M W F 9:40 AM - 10:35 AM\n2. CS 2300 (Lab) - Time: W 5:15 PM - 7:05 PM\n3. EE 1024 (Lecture) - Time: M W F 12:55 PM - 1:50 PM\n4. EE 1024 (Lab) - Time: Th 3:05 PM - 4:55 PM\n5. ET 2905 (Lecture) - Time: Tu Th 9:30 AM - 10:50 AM"
+
+
+
+
+ANSWER
+Parsed schedules: [
+  {
+    "scheduleNumber": 1,
+    "classes": [
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lecture",
+        "classNumber": 7868,
+        "times": "TuTh 12:30 PM-1:50 PM"
+      },
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lab",
+        "classNumber": 8009,
+        "times": "W 12:55 PM-2:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lecture",
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lab",
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lecture",
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lab",
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM"
+      }
+    ]
+  },
+  {
+    "scheduleNumber": 2,
+    "classes": [
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lecture",
+        "classNumber": 7868,
+        "times": "TuTh 12:30 PM-1:50 PM"
+      },
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lab",
+        "classNumber": 8014,
+        "times": "W 12:55 PM-2:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lecture",
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lab",
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lecture",
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lab",
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM"
+      }
+    ]
+  },
+  {
+    "scheduleNumber": 3,
+    "classes": [
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lecture",
+        "classNumber": 7870,
+        "times": "TuTh 12:30 PM-1:50 PM"
+      },
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lab",
+        "classNumber": 8009,
+        "times": "W 12:55 PM-2:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lecture",
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lab",
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lecture",
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lab",
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM"
+      }
+    ]
+  },
+  {
+    "scheduleNumber": 4,
+    "classes": [
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lecture",
+        "classNumber": 7870,
+        "times": "TuTh 12:30 PM-1:50 PM"
+      },
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lab",
+        "classNumber": 8014,
+        "times": "W 12:55 PM-2:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lecture",
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lab",
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lecture",
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lab",
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM"
+      }
+    ]
+  },
+  {
+    "scheduleNumber": 5,
+    "classes": [
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lecture",
+        "classNumber": 7867,
+        "times": "TuTh 11:00 AM-12:20 PM"
+      },
+      {
+        "subject": "CHEM",
+        "catalogNumber": "1500",
+        "component": "Lab",
+        "classNumber": 8009,
+        "times": "W 12:55 PM-2:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lecture",
+        "classNumber": 1274,
+        "times": "M 5:15 PM-6:10 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "1100",
+        "component": "Lab",
+        "classNumber": 1285,
+        "times": "WF 3:05 PM-4:00 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lecture",
+        "classNumber": 1289,
+        "times": "TuTh 3:30 PM-4:50 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2100",
+        "component": "Lab",
+        "classNumber": 1292,
+        "times": "F 11:50 AM-1:40 PM"
+      }
+    ]
+  }
+]

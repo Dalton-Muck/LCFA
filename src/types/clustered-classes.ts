@@ -10,6 +10,11 @@ export interface ClusteredClass {
   meetTimeStart: string;
   meetTimeEnd: string;
   days: string;
+  meetingTimes?: Array<{
+    days: string;
+    start: string;
+    end: string;
+  }>;
 }
 
 export interface ClusteredCommunity {

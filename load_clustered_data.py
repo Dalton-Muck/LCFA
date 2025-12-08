@@ -109,6 +109,7 @@ def extract_class_data(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     Extract only the specified fields from a class row.
     Returns None if required fields are missing.
     Handles both 2024 and 2025 column name variations.
+    Handles multiple meeting times (e.g., MWF at one time, Th at another).
     """
     # Handle both "Class #" (2025) and "Class Number" (2024)
     class_number = clean_value(row.get('Class #')) or clean_value(row.get('Class Number'))
@@ -126,6 +127,84 @@ def extract_class_data(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # Handle both "Section" (2025) and "Class Section" (2024)
     section = clean_value(row.get('Section')) or clean_value(row.get('Class Section'))
     
+    # Get days and check if there are multiple meeting patterns
+    days_str = str(clean_value(row.get('Days'))) if clean_value(row.get('Days')) is not None else None
+    
+    # Check for multiple meeting times - look for multiple time columns or combined format
+    # Try to find multiple time start/end columns (e.g., "Meet Time Start", "Meet Time Start 2", etc.)
+    meet_time_starts = []
+    meet_time_ends = []
+    
+    # Get primary times
+    primary_start = normalize_time(clean_value(row.get('Meet Time Start')))
+    primary_end = normalize_time(clean_value(row.get('Meet Time End')))
+    
+    if primary_start and primary_end:
+        meet_time_starts.append(primary_start)
+        meet_time_ends.append(primary_end)
+    
+    # Check for additional time columns - look for patterns in all column names
+    # Common patterns: "Meet Time Start 2", "Meet Time End 2", "Start Time 2", "End Time 2", etc.
+    all_columns = list(row.keys())
+    
+    # Find all time start columns
+    time_start_cols = [col for col in all_columns if 'start' in col.lower() and 'time' in col.lower()]
+    time_end_cols = [col for col in all_columns if 'end' in col.lower() and 'time' in col.lower()]
+    
+    # Sort to get them in order (e.g., "Meet Time Start", "Meet Time Start 2", etc.)
+    time_start_cols.sort()
+    time_end_cols.sort()
+    
+    # Extract all time pairs
+    for i in range(1, min(len(time_start_cols), len(time_end_cols))):
+        start_time = normalize_time(clean_value(row.get(time_start_cols[i])))
+        end_time = normalize_time(clean_value(row.get(time_end_cols[i])))
+        
+        if start_time and end_time:
+            meet_time_starts.append(start_time)
+            meet_time_ends.append(end_time)
+    
+    # Also check for numbered columns (e.g., "Meet Time Start 2", "Meet Time End 2")
+    for i in range(2, 5):  # Check up to 4 time slots
+        start_col = f'Meet Time Start {i}'
+        end_col = f'Meet Time End {i}'
+        alt_start_col = f'Meet Time Start{i}'
+        alt_end_col = f'Meet Time End{i}'
+        
+        start_time = (normalize_time(clean_value(row.get(start_col))) or 
+                     normalize_time(clean_value(row.get(alt_start_col))))
+        end_time = (normalize_time(clean_value(row.get(end_col))) or 
+                   normalize_time(clean_value(row.get(alt_end_col))))
+        
+        if start_time and end_time:
+            # Avoid duplicates
+            if (start_time, end_time) not in zip(meet_time_starts, meet_time_ends):
+                meet_time_starts.append(start_time)
+                meet_time_ends.append(end_time)
+    
+    # If we have multiple day groups (separated by semicolon) and multiple times, match them
+    # Otherwise, use the primary time for all day groups
+    if days_str and ';' in days_str and len(meet_time_starts) > 1:
+        # Multiple day groups and multiple times - format as "Days1 Time1-Time2; Days2 Time3-Time4"
+        day_groups = [d.strip() for d in days_str.split(';')]
+        time_ranges = []
+        for i, day_group in enumerate(day_groups):
+            if i < len(meet_time_starts) and i < len(meet_time_ends):
+                time_ranges.append(f"{day_group} {meet_time_starts[i]}-{meet_time_ends[i]}")
+            elif len(meet_time_starts) > 0 and len(meet_time_ends) > 0:
+                # Use primary time if not enough times for all day groups
+                time_ranges.append(f"{day_group} {meet_time_starts[0]}-{meet_time_ends[0]}")
+        
+        # For backward compatibility, keep primary times and format days with times
+        formatted_days = days_str
+        formatted_start = meet_time_starts[0] if meet_time_starts else None
+        formatted_end = meet_time_ends[0] if meet_time_ends else None
+    else:
+        # Single time or single day group - use standard format
+        formatted_days = days_str
+        formatted_start = meet_time_starts[0] if meet_time_starts else None
+        formatted_end = meet_time_ends[0] if meet_time_ends else None
+    
     return {
         'classNumber': safe_int(class_number),
         'subject': str(subject) if subject is not None else None,
@@ -133,9 +212,15 @@ def extract_class_data(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         'section': safe_int(section),
         'component': str(clean_value(row.get('Component'))) if clean_value(row.get('Component')) is not None else None,
         'title': str(clean_value(row.get('Title'))) if clean_value(row.get('Title')) is not None else None,
-        'meetTimeStart': normalize_time(clean_value(row.get('Meet Time Start'))),
-        'meetTimeEnd': normalize_time(clean_value(row.get('Meet Time End'))),
-        'days': str(clean_value(row.get('Days'))) if clean_value(row.get('Days')) is not None else None,
+        'meetTimeStart': formatted_start,
+        'meetTimeEnd': formatted_end,
+        'days': formatted_days,
+        # Store all meeting times if multiple exist
+        'meetingTimes': [
+            {'days': day_groups[i] if days_str and ';' in days_str and i < len(day_groups := [d.strip() for d in days_str.split(';')]) else days_str,
+             'start': start, 'end': end}
+            for i, (start, end) in enumerate(zip(meet_time_starts, meet_time_ends))
+        ] if len(meet_time_starts) > 1 else None,
     }
 
 

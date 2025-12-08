@@ -44,7 +44,7 @@ function convertTo12Hour(time24: string): string {
 
 /**
  * Convert a time range from 24-hour to 12-hour format
- * Handles formats like "09:40-10:35" or "MWF 09:40-10:35"
+ * Handles formats like "09:40-10:35" or "MWF 09:40-10:35" or "Th 9:30 AM-10:25 AM; MWF 9:40 AM-10:35 AM"
  */
 function convertTimeRangeTo12Hour(timeRange: string): string {
   if (!timeRange || typeof timeRange !== 'string') return timeRange;
@@ -52,6 +52,11 @@ function convertTimeRangeTo12Hour(timeRange: string): string {
   // Check if already in AM/PM format
   if (timeRange.includes('AM') || timeRange.includes('PM') || timeRange.includes('am') || timeRange.includes('pm')) {
     return timeRange;
+  }
+  
+  // Handle multiple meeting times separated by semicolons
+  if (timeRange.includes(';')) {
+    return timeRange.split(';').map(part => convertTimeRangeTo12Hour(part.trim())).join('; ');
   }
   
   // Pattern to match: optional days prefix, then time-time
@@ -170,24 +175,39 @@ export async function generateSchedules(
     }
     
     const classesInfo = course.classes.map((cls) => {
-      // Extract raw time information from meetings array
+      // Extract raw time information from meetings array - handle multiple meetings
       let timeString = '';
       let daysString = '';
       
       if (cls.meetings && cls.meetings.length > 0) {
-        const meeting = cls.meetings[0];
-        if (meeting.days && Array.isArray(meeting.days)) {
-          daysString = meeting.days.join('');
-        }
+        // Process all meetings, not just the first one
+        const meetingStrings: string[] = [];
+        const allDays = new Set<string>();
+        
+        for (const meeting of cls.meetings) {
         if (meeting.startTime && meeting.endTime && 
             typeof meeting.startTime === 'string' && 
             typeof meeting.endTime === 'string' &&
             meeting.startTime.trim() !== '' &&
             meeting.endTime.trim() !== '') {
-          // Convert to AM/PM format
-          const start12 = convertTo12Hour(meeting.startTime);
-          const end12 = convertTo12Hour(meeting.endTime);
-          timeString = `${start12}-${end12}`;
+            // Convert to AM/PM format
+            const start12 = convertTo12Hour(meeting.startTime);
+            const end12 = convertTo12Hour(meeting.endTime);
+            const timeRange = `${start12}-${end12}`;
+            
+            if (meeting.days && Array.isArray(meeting.days) && meeting.days.length > 0) {
+              const meetingDays = meeting.days.join('');
+              meetingStrings.push(`${meetingDays} ${timeRange}`);
+              meeting.days.forEach(day => allDays.add(day));
+            } else {
+              meetingStrings.push(timeRange);
+            }
+          }
+        }
+        
+        if (meetingStrings.length > 0) {
+          timeString = meetingStrings.join('; ');
+          daysString = Array.from(allDays).join('');
         }
       }
       
@@ -205,9 +225,11 @@ export async function generateSchedules(
         throw new Error(`Class ${cls.subject} ${cleanCatalogNumber} #${cls.classNumber} is missing required time information`);
       }
       
-      const scheduleTime = daysString && timeString 
-        ? `${daysString} ${timeString}` 
-        : timeString;
+      // If we have multiple meeting times, timeString already includes days
+      // If we have single time with days, combine them
+      const scheduleTime = (timeString.includes(';') || !daysString) 
+        ? timeString 
+        : `${daysString} ${timeString}`;
       
       const seats = cls.enrolled !== undefined && cls.maxEnrolled !== undefined
         ? `${cls.enrolled}/${cls.maxEnrolled}`
@@ -232,186 +254,174 @@ export async function generateSchedules(
     };
   });
 
-  // Build previous schedule reference text if provided
-  let previousScheduleText = '';
-  if (previousSchedule && previousSchedule.classes) {
-    previousScheduleText = `
+  // Build system prompt
+  const systemPrompt = `You are an advising assistant that generates conflict-free course schedules. Your objective is to schedule 1 class from each course, matching historical times when available.
 
-PREVIOUS SCHEDULE REFERENCE:
-The user has provided a previous schedule (${previousSchedule.name}) that they want to match as closely as possible.
-Your PRIMARY GOAL is to generate schedules that MATCH THE EXACT TIMES from the previous schedule.
-
-Previous Schedule Details:
-${previousSchedule.classes.map((cls, idx) => 
-  `${idx + 1}. ${cls.subject} ${cls.catalogNumber}${cls.component ? ` (${cls.component})` : ''} - Time: ${cls.timeRange}`
-).join('\n')}
-
-CRITICAL TIME MATCHING RULES (HIGHEST PRIORITY):
-1. EXACT TIME MATCHES ARE MANDATORY: If a class in the previous schedule had "M/W/F 9:40 AM–10:35 AM" and there is a class available with the EXACT SAME time "M/W/F 9:40 AM–10:35 AM", you MUST select that class. This is not optional - it is REQUIRED.
-2. If an exact time match exists, you MUST use it, even if it means other classes in the schedule need to be adjusted to avoid conflicts.
-3. If no exact match exists, find the CLOSEST possible time match:
-   - Match the DAYS first (if previous was M/W/F, prefer M/W/F classes)
-   - Then match the TIME RANGE as closely as possible (if previous was 9:40-10:35, prefer 9:40-10:35 or 9:30-10:20 over 2:00-3:20)
-4. The FIRST schedule you generate MUST be the MOST SIMILAR to the previous schedule, prioritizing exact time matches above all else.
-5. Subsequent schedules can vary more, but still prioritize time similarity where possible.
-
-This is the HIGHEST PRIORITY requirement - matching times from the previous schedule is more important than other considerations.`;
-  }
-
-  const prompt = `You are a course schedule generator. Given ${courses.length} courses, generate conflict-free schedules.${previousScheduleText}
-
-YOUR PRIMARY GOAL: Generate EXACTLY 5 UNIQUE schedules. This is your main objective.
-
-CRITICAL REQUIREMENTS:
-1. YOU MUST GENERATE 5 SCHEDULES - this is mandatory unless it is truly impossible
-2. Each schedule MUST have exactly ${courses.length} classes (one from each course)
-3. Each schedule must select exactly ONE class from EACH course - pick only ONE class per course
-4. COMPONENT AWARENESS (CRITICAL): Courses with different components (e.g., "HIST 1330" with component "Lecture" vs "HIST 1330" with component "Discussion") are DIFFERENT COURSES. You MUST schedule BOTH if both are in the course list. For example:
-   - If you see "HIST 1330" with component "Lecture" and "HIST 1330" with component "Discussion" as separate courses, you MUST select ONE class from EACH:
-     * One class from "HIST 1330" (component: "Lecture")
-     * One class from "HIST 1330" (component: "Discussion")
-   - DO NOT select two Lecture classes when one course is Lecture and another is Discussion/Lab/etc.
-   - The component field at the course level tells you which component type to select - all classes under that course will have the same component type.
-5. NO TWO CLASSES FROM DIFFERENT COURSES IN A SCHEDULE CAN OVERLAP IN TIME - this is ABSOLUTELY MANDATORY
-6. IMPORTANT: Classes within the SAME course may have overlapping times - that's expected and fine. You only need to check conflicts between classes from DIFFERENT courses.
-7. ALL SCHEDULES MUST BE UNIQUE - NO DUPLICATE SCHEDULES ALLOWED. A schedule is unique if ANY class is different from another schedule. Even if 3 out of 4 classes are the same, if the 4th class is different, the schedules are unique.
-8. DO NOT RETURN DUPLICATE SCHEDULES - each schedule must have a different combination of classNumbers. Check that every schedule you return has at least one different classNumber compared to all other schedules.
-9. VARIATION STRATEGY: For courses with only ONE available class, you MUST use that same class in ALL schedules. For courses with MULTIPLE available classes, you MUST vary which class is selected across different schedules to create variety.
-10. If one course has many classes (like COMS 1030) and other courses have only 1 class each, create 5 different schedules by selecting 5 DIFFERENT classes from the course with many options, while keeping the same classes from courses with only 1 option.
-11. YOU MUST GENERATE 5 SCHEDULES - vary classes from courses that have multiple options to create 5 unique combinations.
-12. Only return fewer than 5 schedules if it is truly impossible to create 5 unique conflict-free schedules. Otherwise, always return 5.
-
-TIME FORMAT REQUIREMENT:
-- ALL TIMES MUST BE IN 12-HOUR AM/PM FORMAT (e.g., "9:40 AM", "2:00 PM", "1:50 PM")
-- DO NOT use 24-hour/military time format (e.g., "09:40", "14:00", "13:50")
-- Examples of correct format: "MWF 9:40 AM-10:35 AM", "TuTh 2:00 PM-3:20 PM", "M 12:00 PM-1:00 PM"
-
-TIME CONFLICT DETECTION RULES (ONLY CHECK BETWEEN DIFFERENT COURSES):
-You MUST check every schedule for time conflicts. A conflict occurs when two classes from DIFFERENT courses:
-1. Share at least one common day (e.g., both have "M", or "Tu" in one and "Tu" in another)
-2. AND their time ranges overlap (e.g., "9:40 AM-10:35 AM" overlaps with "10:00 AM-11:00 AM")
-
-Step-by-step conflict checking:
-- For each class in a schedule, extract the days (M, Tu, W, Th, F, S) and time range (start-end in AM/PM format)
-- Compare each class with every other class from a DIFFERENT course
-- If they share a day AND times overlap, it's a CONFLICT - DO NOT include both classes in the same schedule
-
-Examples:
-- CONFLICT: "MWF 9:40 AM-10:35 AM" (Course A) and "MWF 10:00 AM-11:00 AM" (Course B) - share "MWF" days and times overlap (10:00 AM is between 9:40 AM and 10:35 AM)
-- NO CONFLICT: "MWF 9:40 AM-10:35 AM" (Course A) and "TuTh 10:00 AM-11:00 AM" (Course B) - different days ("MWF" vs "TuTh"), no conflict
-- NO CONFLICT: "MWF 8:35 AM-9:30 AM" (Course A) and "MWF 9:40 AM-10:35 AM" (Course B) - same days but times don't overlap (first ends at 9:30 AM, second starts at 9:40 AM)
-- CONFLICT: "MWF 9:40 AM-10:35 AM" (Course A) and "M 10:00 AM-11:00 AM" (Course B) - share "M" day and times overlap (10:00 AM is between 9:40 AM and 10:35 AM)
-- NO CONFLICT: "TuTh 9:30 AM-10:50 AM" (Course A) and "MWF 9:40 AM-10:35 AM" (Course B) - NO CONFLICT (different days: "TuTh" vs "MWF")
-- CONFLICT: "TuTh 9:30 AM-10:50 AM" (Course A) and "Tu 9:30 AM-10:50 AM" (Course B) - CONFLICT (share "Tu" day and times overlap exactly)
-
-CRITICAL: Before adding a class to a schedule, check if it conflicts with any class already in that schedule from a different course. If it conflicts, choose a different class.
-
-REMEMBER: 
-- You are selecting ONE class from EACH course. Classes within the same course can overlap - that's fine. Only check for conflicts between classes from DIFFERENT courses.
-- Each course has a specific component type (Lecture, Lab, Discussion, etc.) shown in the "component" field. All classes under a course have the same component type, so you just need to select by classNumber.
-- When returning your response, include the subject, catalogNumber, component, classNumber, and times (with days) for each class.
-
-IMPORTANT: If you cannot create ANY schedule without time conflicts between classes from different courses, return this exact JSON structure instead:
-{
-  "error": true,
-  "message": "Cannot generate schedules without overlapping classes. All possible class combinations result in time conflicts."
-}
-
-If you CAN create conflict-free schedules, you MUST return a JSON array with EXACTLY 5 schedules (or as many as possible if fewer than 5 conflict-free schedules exist). Each schedule must have exactly ${courses.length} classes (one from each course) with NO TIME CONFLICTS BETWEEN COURSES.
-
-STEP-BY-STEP INSTRUCTIONS TO GENERATE 5 SCHEDULES:
-${previousSchedule ? `
-1. Start with Schedule 1: This is CRITICAL - make this the MOST SIMILAR to the previous schedule. 
-   - For each course, FIRST check if there is a class with the EXACT SAME time as the previous schedule. If yes, you MUST select that class.
-   - If no exact match, find the closest time match (same days, similar time range).
-   - IMPORTANT: Match the component type - if previous schedule had "HIST 1330 Discussion", select a Discussion component class, not a Lecture.
-   - Ensure NO time conflicts between classes from different courses.
-2. Move to Schedule 2: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options, but still try to maintain some similarity to previous schedule times where possible. Match component types correctly. Check for conflicts.
-3. Move to Schedule 3: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-4. Move to Schedule 4: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-5. Move to Schedule 5: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-` : `
-1. Start with Schedule 1: Pick one class from each course, ensuring:
-   - The class component matches the course component type (Lecture, Lab, Discussion, etc.)
+Rules:
+- Generate the MAXIMUM number of unique schedules possible (up to 8, but fewer if that's all that's possible)
+- If a class matches historical data exactly, you MUST use that class in ALL schedules (never change it)
+- If more then 8 schedules are possible try to make the 8 schedules as unique as possible.
+- Select exactly ONE class from EACH course
+- CRITICAL: Every schedule MUST be UNIQUE - no two schedules can have the exact same set of classNumbers
+- To ensure uniqueness: Before adding a schedule, check that its classNumbers differ from ALL previous schedules
+- If you cannot create a unique schedule, DO NOT add it - return only the unique schedules you can create
    - NO time conflicts between classes from different courses
-2. Move to Schedule 2: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-3. Move to Schedule 3: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-4. Move to Schedule 4: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-5. Move to Schedule 5: Keep the same classes from courses with only 1 option. Vary classes from courses with multiple options. Match component types correctly. Check for conflicts.
-`}
+- TIME MATCHING PRIORITY (when no exact match exists):
+  1. EXACT MATCH: Same days AND same time (e.g., historical "TuTh 1:00 PM" matches "TuTh 1:00 PM") - MANDATORY if available
+  2. SAME DAYS, CLOSEST TIME: Match days first, then closest time (e.g., historical "TuTh 1:00 PM" → prefer "TuTh 12:00 PM" over "TuTh 10:00 AM" over "MWF 1:00 PM")
+  3. DIFFERENT DAYS, CLOSEST TIME: If no same-day match, use closest time regardless of days
+  Example: If historical was "TuTh 1:00 PM" and options are "TuTh 12:00 PM", "TuTh 10:00 AM", "MWF 1:00 PM" → choose "TuTh 12:00 PM" (same days, closest time)
+- MULTIPLE MEETING TIMES: Some classes meet at different times on different days (e.g., "MWF 10:45 AM-11:40 AM; Th 11:00 AM-11:55 AM")
+  - When checking conflicts, check ALL meeting times - a conflict exists if ANY meeting time overlaps
+  - When matching historical data, match if ANY meeting time matches (prefer exact matches across all times)
+- Courses with different components (Lecture, Lab, Discussion) are separate courses
+- Times must be in 12-hour AM/PM format (e.g., "9:40 AM-10:35 AM")
+- Return ONLY valid JSON array of schedules - return exactly as many unique schedules as possible, not always 5`;
 
-VERIFY EACH SCHEDULE: Before finalizing, check that:
-- All classes are from different courses (one per course)
-- No two classes from different courses have overlapping times on the same day
-- This schedule is different from all previous schedules (at least one different classNumber)
-
-REMEMBER: Your goal is to generate 5 UNIQUE schedules. Do not stop at 1 schedule - continue generating until you have 5 unique schedules.
-
-IMPORTANT FOR VARIATION AND UNIQUENESS:
-- If a course has only 1 class, use that SAME class in ALL schedules
-- If a course has multiple classes, use DIFFERENT classes across schedules to create variety
-- Aim to generate 5 unique schedules by varying classes from courses with multiple options
-- REMEMBER: Each schedule must be UNIQUE - check that no two schedules have the exact same set of classNumbers
-- A schedule is unique if ANY class is different - even if 3 classes are the same, if 1 class differs, the schedules are unique
-
-Example: If COMS 1030 has 50 classes and CS 4560 has 1 class, create 5 UNIQUE schedules where:
-- Schedule 1: COMS 1030 class #10064, CS 4560 class #1257 (same for all)
-- Schedule 2: COMS 1030 class #10046, CS 4560 class #1257 (same for all) - DIFFERENT from Schedule 1
-- Schedule 3: COMS 1030 class #10065, CS 4560 class #1257 (same for all) - DIFFERENT from Schedules 1 and 2
-- Schedule 4: COMS 1030 class #9953, CS 4560 class #1257 (same for all) - DIFFERENT from Schedules 1, 2, and 3
-- Schedule 5: COMS 1030 class #9954, CS 4560 class #1257 (same for all) - DIFFERENT from Schedules 1, 2, 3, and 4
-
-DO NOT return two schedules with the same classNumbers - always ensure each schedule has at least one different class.
-
-Format - YOU MUST RETURN 5 SCHEDULES:
+  // Build few-shot example
+  const fewShotExampleUser = `Generate a schedule using these available courses:
 [
+  {
+    "subject": "CS",
+    "catalogNumber": "2300",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 1259,
+        "times": "MWF 9:40 AM-10:35 AM",
+        "seats": "43/72"
+      }
+    ]
+  },
+  {
+    "subject": "CS",
+    "catalogNumber": "2300",
+    "component": "Lab",
+    "classes": [
+      {
+        "classNumber": 1270,
+        "times": "F 2:00 PM-3:50 PM",
+        "seats": "14/24"
+      },
+      {
+        "classNumber": 1229,
+        "times": "W 5:15 PM-7:05 PM",
+        "seats": "9/24"
+      },
+      {
+        "classNumber": 1260,
+        "times": "W 3:05 PM-4:55 PM",
+        "seats": "20/24"
+      }
+    ]
+  },
+  {
+    "subject": "EE",
+    "catalogNumber": "1024",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 1139,
+        "times": "MWF 12:55 PM-1:50 PM",
+        "seats": "56/144"
+      }
+    ]
+  },
+  {
+    "subject": "EE",
+    "catalogNumber": "1024",
+    "component": "Lab",
+    "classes": [
+      {
+        "classNumber": 1140,
+        "times": "W 2:00 PM-3:50 PM",
+        "seats": "14/20"
+      },
+      {
+        "classNumber": 1141,
+        "times": "Th 3:05 PM-4:55 PM",
+        "seats": "20/20"
+      }
+    ]
+  },
+  {
+    "subject": "ET",
+    "catalogNumber": "2905",
+    "component": "Lecture",
+    "classes": [
+      {
+        "classNumber": 1549,
+        "times": "TuTh 12:30 PM-1:50 PM",
+        "seats": "153/200"
+      },
+      {
+        "classNumber": 1550,
+        "times": "TuTh 2:00 PM-3:20 PM",
+        "seats": "177/180"
+      }
+    ]
+  }
+]
+and this historical data:
+1. CS 2300 (Lecture) - Time: M W F 9:40 AM - 10:35 AM
+2. CS 2300 (Lab) - Time: W 5:15 PM - 7:05 PM
+3. EE 1024 (Lecture) - Time: M W F 12:55 PM - 1:50 PM
+4. EE 1024 (Lab) - Time: Th 3:05 PM - 4:55 PM
+5. ET 2905 (Lecture) - Time: Tu Th 9:30 AM - 10:50 AM`;
+
+  const fewShotExampleAssistant = `[
   {
     "scheduleNumber": 1,
     "classes": [
       {
         "subject": "CS",
-        "catalogNumber": "2400",
+        "catalogNumber": "2300",
         "component": "Lecture",
-        "classNumber": 12345,
+        "classNumber": 1259,
         "times": "MWF 9:40 AM-10:35 AM"
+      },
+      {
+        "subject": "CS",
+        "catalogNumber": "2300",
+        "component": "Lab",
+        "classNumber": 1229,
+        "times": "W 5:15 PM-7:05 PM"
+      },
+      {
+        "subject": "EE",
+        "catalogNumber": "1024",
+        "component": "Lecture",
+        "classNumber": 1139,
+        "times": "MWF 12:55 PM-1:50 PM"
+      },
+      {
+        "subject": "EE",
+        "catalogNumber": "1024",
+        "component": "Lab",
+        "classNumber": 1141,
+        "times": "Th 3:05 PM-4:55 PM"
+      },
+      {
+        "subject": "ET",
+        "catalogNumber": "2905",
+        "component": "Lecture",
+        "classNumber": 1549,
+        "times": "TuTh 12:30 PM-1:50 PM"
       }
-      // ... exactly ${courses.length} classes total, one from each course, NO TIME CONFLICTS
-      // Each class MUST include: subject, catalogNumber, component, classNumber, and times (with days in AM/PM format)
-      // IMPORTANT: All times must be in 12-hour AM/PM format (e.g., "9:40 AM-10:35 AM", NOT "09:40-10:35")
-    ]
-  },
-  {
-    "scheduleNumber": 2,
-    "classes": [
-      // ... DIFFERENT class selection - vary classes from courses with multiple options
-    ]
-  },
-  {
-    "scheduleNumber": 3,
-    "classes": [
-      // ... DIFFERENT class selection - vary classes from courses with multiple options
-    ]
-  },
-  {
-    "scheduleNumber": 4,
-    "classes": [
-      // ... DIFFERENT class selection - vary classes from courses with multiple options
-    ]
-  },
-  {
-    "scheduleNumber": 5,
-    "classes": [
-      // ... DIFFERENT class selection - vary classes from courses with multiple options
     ]
   }
-]
+]`;
 
-DO NOT return just 1 schedule. You MUST generate 5 schedules (or as close to 5 as possible if conflicts prevent it).
+  // Build actual user request
+  let historicalDataText = '';
+  if (previousSchedule && previousSchedule.classes) {
+    historicalDataText = `\nand this historical data:\n${previousSchedule.classes.map((cls, idx) => 
+      `${idx + 1}. ${cls.subject} ${cls.catalogNumber}${cls.component ? ` (${cls.component})` : ''} - Time: ${cls.timeRange}`
+    ).join('\n')}`;
+  }
 
-Courses and available classes with their times:
-${JSON.stringify(courseInfo, null, 2)}
-
-Return ONLY valid JSON - either an error object or an array of schedules. No additional text before or after.`;
+  const actualUserRequest = `Generate a schedule using these available courses:
+${JSON.stringify(courseInfo, null, 2)}${historicalDataText}`;
 
   // Log what we're sending to OpenRouter
   console.log('='.repeat(80));
@@ -421,16 +431,33 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
   console.log('API URL:', OPENROUTER_API_URL);
   console.log('\nCourse Information:');
   console.log(JSON.stringify(courseInfo, null, 2));
-  console.log('\nPrompt:');
-  console.log(prompt);
+  console.log('\nMessages:');
+  console.log(JSON.stringify([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: fewShotExampleUser },
+    { role: 'assistant', content: fewShotExampleAssistant },
+    { role: 'user', content: actualUserRequest },
+  ], null, 2));
   console.log('='.repeat(80));
 
   const requestBody = {
     model: DEFAULT_MODEL,
     messages: [
       {
+        role: 'system',
+        content: systemPrompt,
+      },
+      {
         role: 'user',
-        content: prompt,
+        content: fewShotExampleUser,
+      },
+      {
+        role: 'assistant',
+        content: fewShotExampleAssistant,
+      },
+      {
+        role: 'user',
+        content: actualUserRequest,
       },
     ],
     temperature: 0.7,
@@ -517,6 +544,53 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
 
     console.log('Parsed schedules:', JSON.stringify(schedules, null, 2));
     
+    // Filter out duplicate schedules - a schedule is unique if its set of classNumbers is different
+    const uniqueSchedules: Schedule[] = [];
+    const seenClassNumberSets = new Set<string>();
+    
+    console.log('\n' + '='.repeat(80));
+    console.log('VALIDATING SCHEDULE UNIQUENESS:');
+    console.log('='.repeat(80));
+    
+    for (const schedule of schedules) {
+      if (!schedule.classes || !Array.isArray(schedule.classes)) {
+        console.warn('Skipping schedule with invalid classes:', schedule);
+        continue;
+      }
+      
+      // Create a unique key from sorted classNumbers
+      const classNumbers = schedule.classes
+        .map(cls => cls.classNumber)
+        .sort((a, b) => a - b)
+        .join(',');
+      
+      console.log(`Schedule ${schedule.scheduleNumber}: classNumbers = [${classNumbers}]`);
+      
+      if (!seenClassNumberSets.has(classNumbers)) {
+        seenClassNumberSets.add(classNumbers);
+        uniqueSchedules.push(schedule);
+        console.log(`  -> KEEPING (unique)`);
+      } else {
+        console.warn(`  -> REMOVING (duplicate of previous schedule)`);
+      }
+    }
+    
+    console.log(`\nTotal schedules: ${schedules.length}, Unique schedules: ${uniqueSchedules.length}`);
+    if (schedules.length !== uniqueSchedules.length) {
+      console.warn(`Filtered ${schedules.length - uniqueSchedules.length} duplicate schedule(s).`);
+    }
+    console.log('='.repeat(80) + '\n');
+    
+    // Renumber schedules sequentially
+    const finalSchedules = uniqueSchedules.map((schedule, index) => ({
+      ...schedule,
+      scheduleNumber: index + 1,
+    }));
+    
+    const schedulesToUse = finalSchedules;
+    
+    console.log('Unique schedules after filtering:', JSON.stringify(schedulesToUse, null, 2));
+    
     // Helper function to map a class from OpenRouter response back to full class data
     const mapToFullClassData = (cls: ScheduleClass): ScheduleClass | null => {
       // Extract component from catalogNumber if needed, or use component from response
@@ -544,28 +618,58 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
         if (!component) component = 'Tutorial';
       }
       
-      // Find course by matching subject and catalogNumber (component is separate)
+      // Find course by matching subject, catalogNumber, and component
       const course = courses.find((c) => {
         let cCleanCatalogNumber = c.catalogNumber;
+        let cComponent = c.component || '';
+        
         // Extract component from course catalogNumber if present
         if (c.catalogNumber.includes(' Laboratory')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Laboratory\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Lab';
         } else if (c.catalogNumber.includes(' Lab')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Lab\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Lab';
         } else if (c.catalogNumber.includes(' Discussion')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Discussion\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Discussion';
         } else if (c.catalogNumber.includes(' Recitation')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Recitation\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Recitation';
         } else if (c.catalogNumber.includes(' Seminar')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Seminar\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Seminar';
         } else if (c.catalogNumber.includes(' Tutorial')) {
           cCleanCatalogNumber = c.catalogNumber.replace(/\s*Tutorial\s*$/, '').trim();
+          if (!cComponent) cComponent = 'Tutorial';
         }
-        return c.subject === cls.subject && cCleanCatalogNumber === cleanCatalogNumber;
+        
+        // Normalize components for comparison
+        const normalizeComponent = (comp: string): string => {
+          const normalized = comp.toLowerCase().trim();
+          if (normalized === 'lec' || normalized === 'lecture') return 'lecture';
+          if (normalized === 'lab' || normalized === 'laboratory') return 'lab';
+          return normalized;
+        };
+        
+        const clsComponentNormalized = normalizeComponent(component);
+        const cComponentNormalized = normalizeComponent(cComponent);
+        
+        // Match by subject, catalogNumber, and component
+        return c.subject === cls.subject && 
+               cCleanCatalogNumber === cleanCatalogNumber &&
+               (clsComponentNormalized === cComponentNormalized || 
+                (clsComponentNormalized === '' && cComponentNormalized === 'lecture') ||
+                (clsComponentNormalized === 'lecture' && cComponentNormalized === ''));
       });
       
       if (!course) {
-        console.warn(`Course not found for ${cls.subject} ${cleanCatalogNumber}`);
+        console.warn(`Course not found for ${cls.subject} ${cleanCatalogNumber}${component ? ` (${component})` : ''}`);
+        console.warn('Available courses:', courses.map(c => ({
+          subject: c.subject,
+          catalogNumber: c.catalogNumber,
+          component: c.component,
+        })));
         return null;
       }
       
@@ -573,8 +677,10 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
       
       if (!actualClass) {
         console.warn(
-          `Class ${cls.classNumber} not found in ${cls.subject} ${cleanCatalogNumber}, using first available class`,
+          `Class ${cls.classNumber} not found in ${cls.subject} ${cleanCatalogNumber}${component ? ` (${component})` : ''}`,
         );
+        console.warn(`Available classNumbers in this course:`, course.classes.map(c => c.classNumber));
+        console.warn('Using first available class as fallback');
         if (course.classes.length > 0) {
           const fallbackClass = course.classes[0];
           return mapToFullClassData({
@@ -615,49 +721,86 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
       
       // If response includes times, use them (they should include days)
       if (cls.times && cls.times !== 'TBA' && cls.times.trim() !== '') {
-        // Parse times string - could be "MWF 9:40 AM-10:35 AM" or just "9:40 AM-10:35 AM"
         const timeStr = cls.times.trim();
-        // Convert to AM/PM format if needed
-        const convertedTimeStr = convertTimeRangeTo12Hour(timeStr);
-        const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
-        const match = convertedTimeStr.match(dayPattern);
-        if (match) {
-          days = match[1];
-          times = match[2];
+        
+        // If times contains semicolons, it's multiple meeting times with days already included
+        // Don't extract days from the beginning - each meeting time has its own days
+        if (timeStr.includes(';')) {
+          // Multiple meeting times like "Th 9:30 AM-10:25 AM; MWF 9:40 AM-10:35 AM"
+          // Normalize: remove spaces between days (e.g., "M W F" -> "MWF")
+          const normalizedParts = timeStr.split(';').map(part => {
+            const trimmed = part.trim();
+            // Pattern to match days with spaces (e.g., "M W F 10:45 AM-11:40 AM")
+            const dayPattern = /^((?:M|Tu|W|Th|F|S)\s+(?:M|Tu|W|Th|F|S|\s)*)\s+(.+)$/i;
+            const match = trimmed.match(dayPattern);
+            if (match) {
+              // Remove spaces from days
+              const days = match[1].replace(/\s+/g, '');
+              const timePart = match[2].trim();
+              return `${days} ${timePart}`;
+            }
+            return trimmed;
+          });
+          times = convertTimeRangeTo12Hour(normalizedParts.join('; '));
+          // Don't set days - they're already in the times string
         } else {
-          times = convertedTimeStr;
+          // Single meeting time - could be "MWF 9:40 AM-10:35 AM" or just "9:40 AM-10:35 AM"
+          const convertedTimeStr = convertTimeRangeTo12Hour(timeStr);
+          const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
+          const match = convertedTimeStr.match(dayPattern);
+          if (match) {
+            days = match[1];
+            times = match[2];
+          } else {
+            times = convertedTimeStr;
+          }
         }
       }
       
       // Fallback to extracting from actualClass if not in response
       if (!times || !days) {
         if (actualClass.meetings && actualClass.meetings.length > 0) {
-          const meeting = actualClass.meetings[0];
-          if (meeting.days && Array.isArray(meeting.days)) {
-            if (!days) days = meeting.days.join('');
-          }
-          if (meeting.startTime && meeting.endTime && 
-              typeof meeting.startTime === 'string' && 
-              typeof meeting.endTime === 'string' &&
-              meeting.startTime.trim() !== '' &&
-              meeting.endTime.trim() !== '') {
-            if (!times) {
+          // Handle multiple meetings (e.g., MWF at one time, Th at another)
+          const meetingStrings: string[] = [];
+          const allDays = new Set<string>();
+          
+          for (const meeting of actualClass.meetings) {
+        if (meeting.startTime && meeting.endTime && 
+            typeof meeting.startTime === 'string' && 
+            typeof meeting.endTime === 'string' &&
+            meeting.startTime.trim() !== '' &&
+            meeting.endTime.trim() !== '') {
               // Convert to AM/PM format
               const start12 = convertTo12Hour(meeting.startTime);
               const end12 = convertTo12Hour(meeting.endTime);
-              times = `${start12}-${end12}`;
+              const timeRange = `${start12}-${end12}`;
+              
+              if (meeting.days && Array.isArray(meeting.days) && meeting.days.length > 0) {
+                const meetingDays = meeting.days.join('');
+                meetingStrings.push(`${meetingDays} ${timeRange}`);
+                meeting.days.forEach(day => allDays.add(day));
+              } else {
+                meetingStrings.push(timeRange);
+              }
+            }
+            if (meeting.roomAndBuilding && !location) {
+          location = meeting.roomAndBuilding;
             }
           }
-          if (meeting.roomAndBuilding) {
-            location = meeting.roomAndBuilding;
+          
+          if (meetingStrings.length > 0 && !times) {
+            times = meetingStrings.join('; ');
           }
+          if (allDays.size > 0 && !days) {
+            days = Array.from(allDays).join('');
         }
-        
-        // Fallback to direct fields
-        if (!days && actualClass.days) {
-          days = actualClass.days;
-        }
-        if (!times && actualClass.times && actualClass.times !== 'TBA') {
+      }
+      
+      // Fallback to direct fields
+      if (!days && actualClass.days) {
+        days = actualClass.days;
+      }
+      if (!times && actualClass.times && actualClass.times !== 'TBA') {
           // Convert to AM/PM format if needed
           times = convertTimeRangeTo12Hour(actualClass.times);
         }
@@ -683,10 +826,26 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
       }
       
       // Ensure times are in AM/PM format
-      const formattedTimes = times && times !== 'TBA' ? convertTimeRangeTo12Hour(times) : times;
-      const combinedTimes = days && formattedTimes && formattedTimes !== 'TBA' 
-        ? `${days} ${formattedTimes}` 
-        : formattedTimes || (days ? days : 'TBA');
+      // If times already includes multiple meeting times (with semicolons), use as-is
+      // Otherwise, combine with days
+      let formattedTimes = times && times !== 'TBA' ? convertTimeRangeTo12Hour(times) : times;
+      
+      // Check if formattedTimes already starts with day patterns (e.g., "TuTh 12:30 PM-1:50 PM")
+      const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
+      const timesHasDays = formattedTimes && formattedTimes !== 'TBA' ? formattedTimes.match(dayPattern) : null;
+      
+      // If times contains semicolons, it already has days included for each meeting
+      // Don't add a redundant days prefix - each meeting time has its own days
+      // Otherwise, check if times already has days before adding them
+      const combinedTimes = formattedTimes && formattedTimes !== 'TBA'
+        ? (formattedTimes.includes(';') || !days || timesHasDays)
+          ? formattedTimes
+          : `${days} ${formattedTimes}`
+        : (days ? days : 'TBA');
+      
+      // For days field: if we have multiple meeting times, don't set days (they're in times)
+      // Otherwise, set days if available
+      const finalDays = formattedTimes && formattedTimes.includes(';') ? '' : days;
       
       return {
         subject: actualClass.subject,
@@ -701,7 +860,7 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
         section: actualClass.section || '',
         instructionType: actualClass.instructionType || '',
         instructor: instructor,
-        days: days,
+        days: finalDays,
         times: combinedTimes,
         location: location || actualClass.building || '',
         building: actualClass.building || '',
@@ -710,7 +869,7 @@ Return ONLY valid JSON - either an error object or an array of schedules. No add
     };
     
     // Enrich schedules with full class data
-    const enrichedSchedules: Schedule[] = schedules.map((schedule) => {
+    const enrichedSchedules: Schedule[] = schedulesToUse.map((schedule) => {
       const enrichedClasses = schedule.classes
         .map(mapToFullClassData)
         .filter((cls): cls is ScheduleClass => cls !== null);

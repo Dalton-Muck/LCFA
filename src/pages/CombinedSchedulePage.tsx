@@ -4,7 +4,7 @@ import { generateSchedules, type Schedule } from '../services/gemini.service';
 import { ScheduleCard } from '../components/ScheduleCard';
 import type { Course, ClassResult } from '../types/course-offerings';
 import { environment } from '../config/environment';
-import { PREVIOUS_SCHEDULES, type PreviousSchedule } from '../data/previousSchedules';
+import type { PreviousSchedule } from '../data/previousSchedules';
 import { getCurrentFallTerm, searchClasses } from '../services/course-offerings.service';
 import { CommunitySelector } from '../components/CommunitySelector';
 import type { ClusteredCommunity } from '../types/clustered-classes';
@@ -22,7 +22,6 @@ export function CombinedSchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showSchedules, setShowSchedules] = useState(false);
   const [selectedPreviousSchedule, setSelectedPreviousSchedule] = useState<PreviousSchedule | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<ClusteredCommunity | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -403,13 +402,56 @@ export function CombinedSchedulePage() {
     setSelectedPreviousSchedule(null); // Clear old schedule selection
     
     if (community) {
+      // Console log all parsed community information
+      console.log('=== Selected Community Information ===');
+      console.log('Cluster Call Number:', community.clusterCallNumber);
+      console.log('Prefix/Number/Section:', community.pfxNumSection);
+      console.log('College:', community.college);
+      console.log('Communities:', community.communities);
+      console.log('Course:', community.course);
+      console.log('Seats:', community.seats ?? 'Not specified');
+      console.log('Total Classes:', community.classes.length);
+      console.log('\n--- Classes in Community ---');
+      community.classes.forEach((cls, index) => {
+        console.log(`\nClass ${index + 1}:`);
+        console.log('  Class Number:', cls.classNumber);
+        console.log('  Subject:', cls.subject);
+        console.log('  Catalog Number:', cls.catalogNumber);
+        console.log('  Section:', cls.section);
+        console.log('  Component:', cls.component);
+        console.log('  Title:', cls.title);
+        console.log('  Days:', cls.days);
+        console.log('  Time Start:', cls.meetTimeStart);
+        console.log('  Time End:', cls.meetTimeEnd);
+        console.log('  Time Range:', `${cls.days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`);
+      });
+      console.log('\n=== Full Community Object ===');
+      console.log(JSON.stringify(community, null, 2));
+      
       // Convert community to PreviousSchedule format
       const previousSchedule: PreviousSchedule = {
         scheduleNumber: community.clusterCallNumber,
         name: `${community.communities} (${community.college.trim()})`,
         classes: community.classes.map((cls) => {
           // Format time range from meetTimeStart, meetTimeEnd, and days
-          const timeRange = `${cls.days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`;
+          // If there are multiple meeting times, format them all
+          let timeRange: string;
+          if (cls.meetingTimes && cls.meetingTimes.length > 1) {
+            // Multiple meeting times - format as "Days1 Start-End; Days2 Start-End"
+            timeRange = cls.meetingTimes
+              .map(mt => `${mt.days} ${mt.start} - ${mt.end}`)
+              .join('; ');
+          } else if (cls.days && cls.days.includes(';') && cls.meetTimeStart && cls.meetTimeEnd) {
+            // Days has semicolon but we only have one time - use it for all day groups
+            // This is a fallback case - ideally meetingTimes should be populated
+            const dayGroups = cls.days.split(';').map(d => d.trim());
+            timeRange = dayGroups
+              .map(days => `${days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`)
+              .join('; ');
+          } else {
+            // Single meeting time
+            timeRange = `${cls.days} ${cls.meetTimeStart} - ${cls.meetTimeEnd}`;
+          }
           return {
             subject: cls.subject,
             catalogNumber: cls.catalogNumber,
@@ -419,6 +461,8 @@ export function CombinedSchedulePage() {
         }),
       };
       setSelectedPreviousSchedule(previousSchedule);
+    } else {
+      console.log('Community selection cleared');
     }
     setError(null);
   };
@@ -590,7 +634,7 @@ export function CombinedSchedulePage() {
               selectedSet.add(cls.classNumber);
             });
             newSelections.set(courseKey, selectedSet);
-            newExpanded.add(courseKey);
+            // Don't add to newExpanded - courses should start closed when transferred
           }
         } catch (err) {
           console.error(`Failed to fetch ${subject} ${catalogNumber}:`, err);
@@ -652,7 +696,6 @@ export function CombinedSchedulePage() {
     setIsGenerating(true);
     setError(null);
     setSchedules([]);
-    setShowSchedules(false);
     localStorage.setItem('isGeneratingSchedules', 'true');
     localStorage.removeItem('scheduleGenerationError');
     localStorage.removeItem('generatedSchedules');
@@ -670,7 +713,6 @@ export function CombinedSchedulePage() {
       }
 
       setSchedules(generatedSchedules);
-      setShowSchedules(true);
       localStorage.setItem('generatedSchedules', JSON.stringify(generatedSchedules));
       localStorage.removeItem('isGeneratingSchedules');
       localStorage.removeItem('scheduleGenerationError');
@@ -736,15 +778,32 @@ export function CombinedSchedulePage() {
     };
 
     if (classItem.meetings && classItem.meetings.length > 0) {
-      const meeting = classItem.meetings[0];
-      if (meeting.days && Array.isArray(meeting.days)) {
-        days = meeting.days.join('');
+      // Handle multiple meetings (e.g., MWF at one time, Th at another)
+      const meetingStrings: string[] = [];
+      const allDays = new Set<string>();
+      
+      for (const meeting of classItem.meetings) {
+        if (meeting.startTime && meeting.endTime) {
+          // Convert to AM/PM format
+          const start12 = convertTo12Hour(meeting.startTime);
+          const end12 = convertTo12Hour(meeting.endTime);
+          const timeRange = `${start12}-${end12}`;
+          
+          if (meeting.days && Array.isArray(meeting.days) && meeting.days.length > 0) {
+            const meetingDays = meeting.days.join('');
+            meetingStrings.push(`${meetingDays} ${timeRange}`);
+            meeting.days.forEach(day => allDays.add(day));
+          } else {
+            meetingStrings.push(timeRange);
+          }
+        }
       }
-      if (meeting.startTime && meeting.endTime) {
-        // Convert to AM/PM format
-        const start12 = convertTo12Hour(meeting.startTime);
-        const end12 = convertTo12Hour(meeting.endTime);
-        times = `${start12}-${end12}`;
+      
+      if (meetingStrings.length > 0) {
+        times = meetingStrings.join('; ');
+      }
+      if (allDays.size > 0) {
+        days = Array.from(allDays).join('');
       }
     }
 
@@ -752,25 +811,64 @@ export function CombinedSchedulePage() {
       days = classItem.days;
     }
     if (!times && classItem.times && classItem.times !== 'TBA') {
-      // Convert to AM/PM format if needed
-      const timeParts = classItem.times.split('-');
-      if (timeParts.length === 2) {
-        const start12 = convertTo12Hour(timeParts[0].trim());
-        const end12 = convertTo12Hour(timeParts[1].trim());
-        times = `${start12}-${end12}`;
+      // Check if times already includes days (e.g., "TuTh 12:30 PM-1:50 PM")
+      const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
+      const match = classItem.times.match(dayPattern);
+      
+      if (match) {
+        // Times already has days - extract just the time part
+        const extractedDays = match[1];
+        const timePart = match[2];
+        // Don't set days here - they're already in the times string
+        // Convert time part to AM/PM format if needed
+        const timeParts = timePart.split('-');
+        if (timeParts.length === 2) {
+          const start12 = convertTo12Hour(timeParts[0].trim());
+          const end12 = convertTo12Hour(timeParts[1].trim());
+          times = `${extractedDays} ${start12}-${end12}`;
+        } else {
+          times = classItem.times; // Keep as-is if format is unexpected
+        }
       } else {
-        times = classItem.times;
+        // Times doesn't have days - convert to AM/PM format
+        const timeParts = classItem.times.split('-');
+        if (timeParts.length === 2) {
+          const start12 = convertTo12Hour(timeParts[0].trim());
+          const end12 = convertTo12Hour(timeParts[1].trim());
+          times = `${start12}-${end12}`;
+        } else {
+          times = classItem.times;
+        }
       }
     }
 
     if (!times) return 'TBA';
 
-    // If times already have AM/PM, just combine with days
+    // Check if times already starts with day patterns (e.g., "TuTh 12:30 PM-1:50 PM")
+    const dayPattern = /^((?:M|Tu|W|Th|F|S)+)\s+(.+)$/i;
+    const timesHasDays = times.match(dayPattern);
+
+    // If times already have AM/PM, check if it contains multiple meeting times
+    // If it has semicolons, it already includes days for each meeting - don't add redundant prefix
     if (times.includes('AM') || times.includes('PM') || times.includes('am') || times.includes('pm')) {
+      // If times contains semicolons, it's multiple meeting times with days already included
+      if (times.includes(';')) {
+        return times; // Don't add days prefix - each meeting time has its own days
+      }
+      // Single meeting time - check if it already has days
+      if (timesHasDays) {
+        return times; // Times already includes days, don't add them again
+      }
+      // Single meeting time without days - combine with days if available
       return days ? `${days} ${times}` : times;
     }
 
     // Fallback: format time for display (shouldn't reach here if conversion worked)
+    // Check again if times already has days before adding them
+    if (timesHasDays) {
+      return times; // Times already includes days, don't add them again
+    }
+    
     const formatTime = (time: string): string => {
       const [hours, minutes] = time.split(':');
       const hour = parseInt(hours, 10);
@@ -938,31 +1036,6 @@ export function CombinedSchedulePage() {
                 />
               </div>
 
-              {/* Legacy Schedule Selector */}
-              <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e0e0e0' }}>
-                <h3 style={{ fontSize: '1rem', marginBottom: '12px', fontWeight: 600 }}>
-                  Or select from legacy schedules:
-                </h3>
-                <label htmlFor="previous-schedule-select">Select a previous schedule:</label>
-                <select
-                  id="previous-schedule-select"
-                  value={selectedPreviousSchedule?.scheduleNumber || ''}
-                  onChange={(e) => {
-                    const scheduleNum = parseInt(e.target.value);
-                    const schedule = PREVIOUS_SCHEDULES.find((s) => s.scheduleNumber === scheduleNum) || null;
-                    handlePreviousScheduleSelect(schedule);
-                  }}
-                  className="schedule-select"
-                  style={{ marginTop: '6px' }}
-                >
-                  <option value="">Select a previous schedule...</option>
-                  {PREVIOUS_SCHEDULES.map((schedule) => (
-                    <option key={schedule.scheduleNumber} value={schedule.scheduleNumber}>
-                      {schedule.name} ({schedule.classes.length} courses)
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               {selectedPreviousSchedule && (
                 <>
@@ -974,10 +1047,6 @@ export function CombinedSchedulePage() {
                     Transfer
                   </button>
                   <div className="previous-schedule-info">
-                    <p className="info-text">
-                      Selected: {selectedPreviousSchedule.name} with {selectedPreviousSchedule.classes.length} courses.
-                      Click "Transfer" to load these courses. The AI will try to match similar times when generating schedules.
-                    </p>
                     <div className="previous-schedule-courses">
                       <h4>Courses in this schedule:</h4>
                       <ul className="previous-courses-list">
@@ -1015,13 +1084,6 @@ export function CombinedSchedulePage() {
                 Generate Schedules
               </button>
             )}
-            <button
-              className="view-button"
-              onClick={() => setShowSchedules(!showSchedules)}
-              disabled={schedules.length === 0}
-            >
-              View Schedules {schedules.length > 0 && `(${schedules.length})`}
-            </button>
           </div>
 
           {error && <div className="error-message">{error}</div>}
@@ -1033,7 +1095,7 @@ export function CombinedSchedulePage() {
             </div>
           )}
 
-          {showSchedules && schedules.length > 0 && (
+          {schedules.length > 0 && (
             <div className="generated-schedules">
               <h3>Generated Schedules ({schedules.length})</h3>
               <div className="schedules-grid">
